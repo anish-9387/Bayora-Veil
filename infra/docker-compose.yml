@@ -1,0 +1,210 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bayora-postgres
+    environment:
+      POSTGRES_DB: bayora_veil
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bayora-internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: bayora-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bayora-internal
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: bayora-api
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bayora_veil
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: http://localhost:5173
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bayora-internal
+      - bayora-api
+
+  target-adapter:
+    build:
+      context: ./services/target-adapter
+      dockerfile: Dockerfile
+    container_name: bayora-target-adapter
+    environment:
+      MOCK_MODEL: "true"
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: llama3.2
+    ports:
+      - "8000:8000"
+    networks:
+      - bayora-internal
+      - bayora-target
+
+  red-runner:
+    build:
+      context: ./services/red-runner
+      dockerfile: Dockerfile
+    container_name: bayora-red-runner
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+    ports:
+      - "3002:3002"
+    networks:
+      - bayora-internal
+      - bayora-red
+
+  blue-runner:
+    build:
+      context: ./services/blue-runner
+      dockerfile: Dockerfile
+    container_name: bayora-blue-runner
+    environment:
+      NODE_ENV: development
+      PORT: 3003
+    ports:
+      - "3003:3003"
+    networks:
+      - bayora-internal
+      - bayora-blue
+
+  observation-firewall:
+    build:
+      context: ./services/observation-firewall
+      dockerfile: Dockerfile
+    container_name: bayora-observation-firewall
+    environment:
+      NODE_ENV: development
+      PORT: 3004
+    ports:
+      - "3004:3004"
+    networks:
+      - bayora-internal
+      - bayora-firewall
+
+  audit-service:
+    build:
+      context: ./services/audit-service
+      dockerfile: Dockerfile
+    container_name: bayora-audit-service
+    environment:
+      NODE_ENV: development
+      PORT: 3005
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bayora_veil
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "3005:3005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bayora-internal
+      - bayora-audit
+
+  replay-worker:
+    build:
+      context: ./services/replay-worker
+      dockerfile: Dockerfile
+    container_name: bayora-replay-worker
+    environment:
+      NODE_ENV: development
+      PORT: 3006
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bayora_veil
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3006:3006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bayora-internal
+      - bayora-replay
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: bayora-web
+    environment:
+      VITE_API_URL: http://localhost:3001/api/v1
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    networks:
+      - bayora-internal
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  bayora-internal:
+    driver: bridge
+    internal: false
+  bayora-api:
+    driver: bridge
+    internal: true
+  bayora-target:
+    driver: bridge
+    internal: true
+  bayora-red:
+    driver: bridge
+    internal: true
+  bayora-blue:
+    driver: bridge
+    internal: true
+  bayora-firewall:
+    driver: bridge
+    internal: true
+  bayora-audit:
+    driver: bridge
+    internal: true
+  bayora-replay:
+    driver: bridge
+    internal: true
