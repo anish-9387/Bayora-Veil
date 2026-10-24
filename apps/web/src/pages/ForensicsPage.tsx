@@ -1,3 +1,4 @@
+import { api } from '../api/client';
 import { useRun, useManifest, useVerifyRun, useRuns } from '../hooks/useApi';
 import { PageHeader, Card, Badge, LoadingSpinner, EmptyState } from '../components/Layout';
 import { Hash, Key, AlertTriangle, CheckCircle, XCircle, FileText, Search, Shield } from 'lucide-react';
@@ -13,7 +14,7 @@ export function ForensicsPage() {
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [showTamperDemo, setShowTamperDemo] = useState(false);
 
-  const runs = runsResponse?.data?.items || [];
+  const runs = runsResponse?.data || [];
   const run = runData?.data;
   const manifest = manifestData?.data;
 
@@ -27,12 +28,20 @@ export function ForensicsPage() {
     }
   };
 
-  const handleTamperDemo = () => {
-    setShowTamperDemo(true);
+  const [tamperResult, setTamperResult] = useState<any>(null);
+  const [tamperError, setTamperError] = useState('');
+  const handleTamperDemo = async () => {
+    setTamperError('');
+    try {
+      const result = await api.runs.tamperCheck(selectedRunId);
+      setTamperResult(result.data);
+      setShowTamperDemo(true);
+    } catch (error) { setTamperError(error instanceof Error ? error.message : 'Tamper check failed'); }
   };
 
   return (
     <div className="space-y-6">
+      {tamperError && <p role="alert" className="text-bayora-danger">{tamperError}</p>}
       <PageHeader
         title="Forensics"
         description="Verify run integrity, inspect hash chains, and demonstrate tamper detection"
@@ -87,7 +96,7 @@ export function ForensicsPage() {
 
               <button
                 onClick={handleTamperDemo}
-                className="w-full px-4 py-3 border border-bayora-border hover:bg-bayora-border text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                className="w-full px-4 py-3 border border-bayora-border hover:bg-bayora-border text-bayora-text rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
               >
                 <AlertTriangle className="w-5 h-5" />
                 Run Tamper Demonstration
@@ -97,9 +106,9 @@ export function ForensicsPage() {
                 <div className={`p-4 rounded-lg ${verifyResult.valid ? 'bg-green-500/20 border border-green-500/30' : 'bg-red-500/20 border border-red-500/30'}`}>
                   <div className="flex items-center gap-3 mb-3">
                     {verifyResult.valid ? (
-                      <CheckCircle className="w-8 h-8 text-green-400" />
+                      <CheckCircle className="w-8 h-8 text-green-700" />
                     ) : (
-                      <XCircle className="w-8 h-8 text-red-400" />
+                      <XCircle className="w-8 h-8 text-red-700" />
                     )}
                     <div>
                       <p className="text-lg font-bold">{verifyResult.valid ? 'VERIFICATION PASSED' : 'TAMPERING DETECTED'}</p>
@@ -116,7 +125,7 @@ export function ForensicsPage() {
                   </div>
                   {verifyResult.tamperedEvents && verifyResult.tamperedEvents.length > 0 && (
                     <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                      <p className="font-medium text-red-400 mb-2">Tampered Events:</p>
+                      <p className="font-medium text-red-700 mb-2">Tampered Events:</p>
                       <ul className="list-disc list-inside text-sm space-y-1">
                         {verifyResult.tamperedEvents.map((e: any) => (
                           <li key={e.sequence}>Sequence {e.sequence}: expected {e.expectedHash.slice(0, 16)}..., got {e.actualHash.slice(0, 16)}...</li>
@@ -188,7 +197,7 @@ export function ForensicsPage() {
             </div>
             <div className="space-y-4">
               <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                <p className="font-medium text-amber-400 mb-2">How this works:</p>
+                <p className="font-medium text-amber-700 mb-2">How this works:</p>
                 <ol className="list-decimal list-inside space-y-1 text-sm text-bayora-text-muted">
                   <li>Original run events are hashed and chained</li>
                   <li>Merkle root is computed and manifest is signed</li>
@@ -196,31 +205,14 @@ export function ForensicsPage() {
                   <li>Verification on the modified copy fails</li>
                 </ol>
               </div>
-              <div className="p-4 bg-bayora-dark rounded-lg">
-                <p className="font-medium mb-2">Simulated Tamper: Event sequence 3 modified</p>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-bayora-text-muted">Original Hash</p>
-                    <code className="text-xs truncate block">sha256:a1b2c3d4e5f6...</code>
-                  </div>
-                  <div>
-                    <p className="text-bayora-text-muted">Tampered Hash</p>
-                    <code className="text-xs truncate block text-red-400">sha256:z9y8x7w6v5u4...</code>
-                  </div>
-                </div>
-              </div>
-              <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <XCircle className="w-8 h-8 text-red-400" />
-                  <div>
-                    <p className="font-bold text-red-400">VERIFICATION FAILED</p>
-                    <p className="text-sm text-bayora-text-muted">Hash chain broken at sequence 3. Merkle root mismatch. Signature invalid.</p>
-                  </div>
-                </div>
+              <div className="p-4 bg-bayora-dark rounded-lg space-y-2">
+                <p>Original chain: {tamperResult?.original.valid ? 'Passed' : 'Failed'}</p>
+                <p>Modified copy: {tamperResult?.tampered.valid ? 'Passed (unexpected)' : 'Failed'}</p>
+                {tamperResult?.tampered.checks.filter((check: any) => !check.passed).map((check: any) => <p key={check.name} className="text-bayora-danger break-all">{check.name}: {check.detail}</p>)}
               </div>
               <p className="text-sm text-bayora-text-muted text-center">
                 This demonstrates that any modification to the audit trail is cryptographically detectable.
-                The original run data remains intact — this is a copy for demonstration.
+                The original run data remains intact - this is a copy for demonstration.
               </p>
             </div>
           </div>

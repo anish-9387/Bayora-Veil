@@ -1,4 +1,4 @@
-# BAYORA VEIL — Verifiable Evaluation Isolation Layer
+# BAYORA VEIL - Verifiable Evaluation Isolation Layer
 
 A prototype for **blind, isolated, measurable, and verifiable AI safety evaluations** built for Hack in Hills '26 Problem Statement 04.
 
@@ -93,15 +93,15 @@ under Docker Compose are not started by it.
 
 ## Demo Script
 
-1. **Create a run** — Select policy version and model adapter
-2. **Commit payload** — Red Team stores adversarial prompt, publishes only SHA-256 commitment
-3. **Execute** — Target model processes prompt in isolated cell
-4. **Defend** — Blue Team applies defenses to sanitized observation only
-5. **Observe** — Firewall releases only allow-listed telemetry (outcome, severity, digest)
-6. **Close** — Freeze run, enable auditor access to raw evidence
-7. **Verify** — Check hash chain, Merkle root, and Ed25519 signature
-8. **Tamper demo** — Modify event copy, show verification failure
-9. **Leakage lab** — Run experiments with firewall ON/OFF, compare measured inference accuracy
+1. **Create a run** - Select policy version and model adapter
+2. **Commit payload** - Red Team stores adversarial prompt, publishes only SHA-256 commitment
+3. **Execute** - Target model processes prompt in isolated cell
+4. **Defend** - Blue Team applies defenses to sanitized observation only
+5. **Observe** - Firewall releases only allow-listed telemetry (outcome, severity, digest)
+6. **Close** - Freeze run, enable auditor access to raw evidence
+7. **Verify** - Check hash chain, Merkle root, and Ed25519 signature
+8. **Tamper demo** - Modify event copy, show verification failure
+9. **Leakage lab** - Run experiments with firewall ON/OFF, compare measured inference accuracy
 
 ## Project Structure
 
@@ -152,7 +152,7 @@ Run controlled measurements (not claims):
 | Timing Leakage | Classifier accuracy before/after bucketing | Decision tree on latency distributions |
 | Cross-Tenant Access | Denial rate + audit coverage | Automated unauthorized request attempts |
 
-Results show **measured prototype metrics** with sample counts and methodology — no invented percentages.
+Results show **measured prototype metrics** with sample counts and methodology - no invented percentages.
 
 ## Testing
 
@@ -178,7 +178,7 @@ Key environment variables (see `.env.example`):
 
 ## License
 
-MIT — See [LICENSE](LICENSE) for details.
+MIT - See [LICENSE](LICENSE) for details.
 
 ## References
 

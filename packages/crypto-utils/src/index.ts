@@ -1,7 +1,12 @@
+import { sha512 } from '@noble/hashes/sha512';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { sha256 } from '@noble/hashes/sha256';
 import * as ed25519 from '@noble/ed25519';
 import { randomBytes } from '@noble/hashes/utils';
 import { z } from 'zod';
+
+ed25519.etc.sha512Sync = (...messages) => sha512(ed25519.etc.concatBytes(...messages));
 
 export const KeyPairSchema = z.object({
   publicKey: z.string(),
@@ -94,6 +99,7 @@ export function buildMerkleRoot(hashes: string[]): string {
 }
 
 function canonicalizeValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
   if (value === null || typeof value !== 'object') {
     return value;
   }
@@ -145,11 +151,14 @@ let signingKeyPair: { privateKey: string; publicKey: string } | null = null;
 
 export function getSigningKey(): { privateKey: string; publicKey: string } {
   if (!signingKeyPair) {
-    const { randomBytes } = require('@noble/hashes/utils');
-    const privateKey = Buffer.from(randomBytes(32)).toString('hex');
-    const { ed25519 } = require('@noble/ed25519');
-    const publicKey = Buffer.from(ed25519.getPublicKey(Buffer.from(privateKey, 'hex'))).toString('hex');
-    signingKeyPair = { privateKey, publicKey };
+    const path = resolve(process.env.SIGNING_KEY_FILE || '.bayora/signing-key.json');
+    mkdirSync(dirname(path), { recursive: true });
+    try {
+      writeFileSync(path, JSON.stringify(generateKeyPair()), { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    signingKeyPair = KeyPairSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
   }
   return signingKeyPair;
 }

@@ -1,7 +1,7 @@
-# BAYORA VEIL — PS-04 Prototype Blueprint
+# BAYORA VEIL - PS-04 Prototype Blueprint
 ## Verifiable Evaluation Isolation Layer
 
-> **Purpose:** Build a working proof of concept for Hack in Hills ’26 Problem Statement 04: *Securing Adversarial AI Safety Testing Infrastructure — Bayora*.
+> **Purpose:** Build a working proof of concept for Hack in Hills ’26 Problem Statement 04: *Securing Adversarial AI Safety Testing Infrastructure - Bayora*.
 >
 > **Core thesis:** Do not build “three Docker containers and a dashboard.” Build a small evaluation protocol that keeps Red Team payloads, Blue Team defenses, and the target model isolated while controlling what information may cross boundaries and producing tamper-evident evidence.
 >
@@ -19,7 +19,7 @@ The PS-04 brief identifies a shared Docker-based sandbox as a risk because Red T
 - Environmental leakage and cross-tenant interference are reduced and measured.
 - Audit records are tamper-evident and can reconstruct an evaluation.
 - The design can run on ordinary cloud infrastructure without proprietary hardware.
-- LLM-specific risks—prompt/context leakage, inference-time exfiltration, cache/session contamination, timing and resource side channels—are considered.
+- LLM-specific risks-prompt/context leakage, inference-time exfiltration, cache/session contamination, timing and resource side channels-are considered.
 - Residual risks and conditions where guarantees fail are communicated honestly.
 
 ## 2. Product concept
@@ -266,7 +266,7 @@ A local demo key proves integrity relative to that key, not identity from an ext
 
 Do not only claim that information is hidden. Run controlled experiments to measure whether the opposing side can infer it.
 
-### Experiment A — Blind payload classification
+### Experiment A - Blind payload classification
 
 1. Generate synthetic payload categories with balanced labels.
 2. Keep labels private to the evaluator.
@@ -277,14 +277,14 @@ Do not only claim that information is hidden. Run controlled experiments to meas
 
 Report baseline/chance accuracy, observed inference accuracy, sample count and class balance, confidence interval if sample size supports it, exposed channel, and mitigation used. For imbalanced classes, report balanced accuracy or macro-F1 rather than raw accuracy alone.
 
-### Experiment B — Timing leakage
+### Experiment B - Timing leakage
 
 - Create two synthetic test classes with different internal work profiles.
 - Measure the information visible to an opposing observer before and after timing bucketing/response delay.
 - Report distributions, sample count, and a simple classifier's performance.
 - Do not claim statistical significance without adequate samples and a stated method.
 
-### Experiment C — Cross-tenant access tests
+### Experiment C - Cross-tenant access tests
 
 Attempt unauthorized access to Red payload routes, Blue rule routes, raw evidence routes, and another run's session. Every test must have an expected denial and a logged outcome.
 
@@ -466,7 +466,7 @@ Design the UI to make failures visible. A red failed-verification state is more 
 
 Build incrementally. Do not generate the entire system in one unreviewed pass.
 
-### Phase 1 — Skeleton and contracts
+### Phase 1 - Skeleton and contracts
 - Create monorepo and TypeScript/Python projects.
 - Define Zod/Pydantic schemas.
 - Implement run state machine and capability middleware.
@@ -475,7 +475,7 @@ Build incrementally. Do not generate the entire system in one unreviewed pass.
 
 **Exit gate:** Invalid state transitions and unauthorized roles are denied by tests.
 
-### Phase 2 — Isolated cells
+### Phase 2 - Isolated cells
 - Build separate Red, Target, and Blue services.
 - Use separate containers and service credentials.
 - Configure default-deny networks and only required routes.
@@ -484,7 +484,7 @@ Build incrementally. Do not generate the entire system in one unreviewed pass.
 
 **Exit gate:** Automated tests prove Red cannot access Blue routes and Blue cannot access Red payload routes.
 
-### Phase 3 — Observation Firewall
+### Phase 3 - Observation Firewall
 - Implement a strict allow-list schema.
 - Store raw evidence separately from sanitized observations.
 - Deny raw evidence access until run closure and auditor authorization.
@@ -492,7 +492,7 @@ Build incrementally. Do not generate the entire system in one unreviewed pass.
 
 **Exit gate:** Test payload secrets do not appear in Blue API responses, dashboard payloads, or public logs.
 
-### Phase 4 — Audit and verification
+### Phase 4 - Audit and verification
 - Canonicalize event serialization.
 - Implement hash-chain verification.
 - Build Merkle root for closed runs.
@@ -501,7 +501,7 @@ Build incrementally. Do not generate the entire system in one unreviewed pass.
 
 **Exit gate:** Original run verifies; a modified, deleted, or reordered event causes verification failure.
 
-### Phase 5 — Leakage Lab
+### Phase 5 - Leakage Lab
 - Generate balanced synthetic hidden labels.
 - Measure baseline inference and firewall-enabled inference.
 - Add timing-bucketing experiment.
@@ -510,7 +510,7 @@ Build incrementally. Do not generate the entire system in one unreviewed pass.
 
 **Exit gate:** Experiment is repeatable and clearly reports sample count and metrics.
 
-### Phase 6 — UI and demo hardening
+### Phase 6 - UI and demo hardening
 - Implement overview, run detail, leakage lab, forensics, and threat-model views.
 - Add loading/error/empty states.
 - Add audit logs for denied requests.

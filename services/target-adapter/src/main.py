@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 import structlog
 import time
 import uuid
@@ -11,10 +12,19 @@ logger = structlog.get_logger()
 
 app = FastAPI(title="Bayora Target Adapter", version="0.1.0")
 
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
 class TargetRequest(BaseModel):
     run_id: str
     case_id: str
-    prompt: str
+    model_adapter: Literal["mock-adapter", "ollama-llama3.2"] = "mock-adapter"
+    prompt: str = Field(min_length=1, max_length=100000)
     context: Optional[Dict[str, Any]] = None
     timeout_ms: int = Field(default=30000, gt=0)
 
@@ -67,11 +77,11 @@ async def execute(request: TargetRequest):
     logger.info("execute_request", run_id=request.run_id, case_id=request.case_id)
 
     try:
-        if MOCK_MODEL:
+        if request.model_adapter == "mock-adapter":
             response_text = get_mock_response(request.prompt)
             await asyncio.sleep(0.1)
         else:
-            response_text = await call_ollama(request.prompt)
+            response_text = await asyncio.wait_for(call_ollama(request.prompt), timeout=request.timeout_ms / 1000)
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         tokens_used = len(response_text) // 4
@@ -82,7 +92,7 @@ async def execute(request: TargetRequest):
             response=response_text,
             tokens_used=tokens_used,
             latency_ms=latency_ms,
-            metadata={"mock": MOCK_MODEL, "model": OLLAMA_MODEL if not MOCK_MODEL else "mock-adapter"}
+            metadata={"mock": request.model_adapter == "mock-adapter", "model": request.model_adapter}
         )
     except Exception as e:
         logger.error("execute_failed", error=str(e), run_id=request.run_id)

@@ -42,7 +42,7 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .venv/
-venv/
+services/target-adapter/venv/
 
 # Turbo
 .turbo/
@@ -50,3 +50,6 @@ venv/
 # Misc
 *.tsbuildinfo
 .eslintcache
+# Local private signing material
+.bayora/
+*.egg-info/

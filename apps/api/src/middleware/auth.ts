@@ -1,3 +1,4 @@
+import { query } from '../db/client.js';
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ServiceIdentitySchema, ActorRole, CapabilitySchema } from '@bayora/schemas';
@@ -103,15 +104,13 @@ export function requireRole(roles: ActorRole | ActorRole[]) {
   const roleArray = Array.isArray(roles) ? roles : [roles];
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.identity || !roleArray.includes(req.identity.role as ActorRole)) {
-      return res.status(403).json({
-        success: false,
-        error: {
-          code: 'FORBIDDEN',
-          message: 'Insufficient role permissions',
-          requestId: req.requestId
-        },
-        requestId: req.requestId
-      });
+      const runId = z.string().uuid().safeParse(req.params.id);
+      void query('INSERT INTO access_denials (run_id, actor, route) VALUES ($1, $2, $3)',
+        [runId.success ? runId.data : null, req.identity?.role || 'unknown', req.path.split('?')[0]])
+        .then(() => res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient role permissions', requestId: req.requestId } }))
+        .catch(next);
+      return;
+
     }
     next();
   };

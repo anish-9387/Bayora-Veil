@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hash, canonicalizeEvent, buildMerkleRoot, GENESIS_HASH } from '@bayora/crypto-utils';
+import { hash, canonicalizeEvent, buildMerkleRoot } from '@bayora/crypto-utils';
 
 const GENESIS = 'sha256:' + '0'.repeat(64);
 
@@ -95,30 +95,30 @@ describe('Audit Tamper Detection', () => {
   });
 
   it('verifies Merkle root changes with any event modification', () => {
-    const hashes1 = ['sha256:a', 'sha256:b', 'sha256:c', 'sha256:d', 'sha256:e'];
+    const hashes1 = ['sha256:a', 'sha256:b', 'sha256:c', 'sha256:d', 'sha256:e'].map(value => hash(value));
     const root1 = buildMerkleRoot(hashes1);
 
-    const hashes2 = ['sha256:a', 'sha256:b', 'sha256:modified', 'sha256:d', 'sha256:e'];
+    const hashes2 = ['sha256:a', 'sha256:b', 'sha256:modified', 'sha256:d', 'sha256:e'].map(value => hash(value));
     const root2 = buildMerkleRoot(hashes2);
 
     expect(root1).not.toBe(root2);
   });
 
   it('verifies Merkle root changes with event deletion', () => {
-    const hashes1 = ['sha256:a', 'sha256:b', 'sha256:c', 'sha256:d', 'sha256:e'];
+    const hashes1 = ['sha256:a', 'sha256:b', 'sha256:c', 'sha256:d', 'sha256:e'].map(value => hash(value));
     const root1 = buildMerkleRoot(hashes1);
 
-    const hashes2 = ['sha256:a', 'sha256:b', 'sha256:d', 'sha256:e'];
+    const hashes2 = ['sha256:a', 'sha256:b', 'sha256:d', 'sha256:e'].map(value => hash(value));
     const root2 = buildMerkleRoot(hashes2);
 
     expect(root1).not.toBe(root2);
   });
 
   it('verifies Merkle root changes with event reordering', () => {
-    const hashes1 = ['sha256:a', 'sha256:b', 'sha256:c', 'sha256:d'];
+    const hashes1 = ['sha256:a', 'sha256:b', 'sha256:c', 'sha256:d'].map(value => hash(value));
     const root1 = buildMerkleRoot(hashes1);
 
-    const hashes2 = ['sha256:a', 'sha256:c', 'sha256:b', 'sha256:d'];
+    const hashes2 = ['sha256:a', 'sha256:c', 'sha256:b', 'sha256:d'].map(value => hash(value));
     const root2 = buildMerkleRoot(hashes2);
 
     expect(root1).not.toBe(root2);

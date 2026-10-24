@@ -87,15 +87,15 @@ External (Dashboard) → API Gateway (port 3001)
 ## Database Schema
 
 ### Core Tables
-- `users` — Service identities and roles
-- `runs` — Run state machine, policy, model, timestamps
-- `payload_commitments` — SHA-256 commitments with reveal policy
-- `observations` — Sanitized, released telemetry
-- `evidence_artifacts` — Raw evidence with access class
-- `audit_events` — Append-only hash-chained events
-- `run_manifests` — Merkle root, final hash, signature
-- `experiments` — Leakage experiment configuration
-- `experiment_results` — Measured metrics with methodology
+- `users` - Service identities and roles
+- `runs` - Run state machine, policy, model, timestamps
+- `payload_commitments` - SHA-256 commitments with reveal policy
+- `observations` - Sanitized, released telemetry
+- `evidence_artifacts` - Raw evidence with access class
+- `audit_events` - Append-only hash-chained events
+- `run_manifests` - Merkle root, final hash, signature
+- `experiments` - Leakage experiment configuration
+- `experiment_results` - Measured metrics with methodology
 
 ## Cryptographic Primitives
 
@@ -105,7 +105,7 @@ External (Dashboard) → API Gateway (port 3001)
 | Ed25519 | @noble/ed25519 | Manifest signatures |
 | Canonical JSON | Custom | Deterministic serialization for hashing |
 
-**No custom crypto** — All primitives from maintained, audited libraries.
+**No custom crypto** - All primitives from maintained, audited libraries.
 
 ## Deployment Profiles
 

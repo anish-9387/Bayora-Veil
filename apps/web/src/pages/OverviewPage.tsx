@@ -4,14 +4,15 @@ import { Plus, ChevronRight, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 
-export function OverviewPage() {
-  const { data: runsResponse, isLoading, refetch } = useRuns(undefined, 10);
+export function OverviewPage({ runsOnly = false }: { runsOnly?: boolean }) {
+  const [offset, setOffset] = useState(0);
+  const { data: runsResponse, isLoading, error, refetch } = useRuns(undefined, 10, offset);
   const createRun = useCreateRun();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formData, setFormData] = useState({ policyVersion: 'v1.0.0', modelAdapter: 'mock-adapter', createdBy: '11111111-1111-1111-1111-111111111111' });
 
-  const runs = runsResponse?.data?.items || [];
-  const totalRuns = runsResponse?.data?.total || 0;
+  const runs = runsResponse?.data || [];
+  const totalRuns = runs.length;
 
   const statusCounts = runs.reduce((acc, run) => {
     acc[run.status] = (acc[run.status] || 0) + 1;
@@ -31,8 +32,8 @@ export function OverviewPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Overview"
-        description="Monitor evaluation runs, isolation status, and audit verification"
+        title={runsOnly ? 'Evaluation runs' : 'Overview'}
+        description={runsOnly ? 'Explore your runs, follow their progress, and inspect the evidence.' : 'Evaluation runs and verification status.'}
         action={
           <button
             onClick={() => setShowCreateModal(true)}
@@ -45,22 +46,23 @@ export function OverviewPage() {
         }
       />
 
+      {error && <div role="alert" className="glass-card p-5 text-bayora-danger">Could not load runs: {error.message} <button onClick={() => refetch()} className="underline">Try again</button></div>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card title="Total Runs">
-          <div className="text-4xl font-bold text-white">{totalRuns}</div>
-          <p className="text-bayora-text-muted text-sm mt-1">All evaluation runs</p>
+        <Card title="Runs on this page">
+          <div className="text-4xl font-bold text-bayora-text">{totalRuns}</div>
+          <p className="text-bayora-text-muted text-sm mt-1">10 runs per page</p>
         </Card>
         <Card title="Active Runs">
           <div className="text-4xl font-bold text-bayora-warning">{(statusCounts.RUNNING || 0) + (statusCounts.COMMITTED || 0)}</div>
           <p className="text-bayora-text-muted text-sm mt-1">Currently executing</p>
         </Card>
         <Card title="Completed">
-          <div className="text-4xl font-bold text-bayora-success">{statusCounts.CLOSED || 0}</div>
-          <p className="text-bayora-text-muted text-sm mt-1">Closed & verified</p>
+          <div className="text-4xl font-bold text-bayora-success">{(statusCounts.CLOSED || 0) + (statusCounts.VERIFIED || 0)}</div>
+          <p className="text-bayora-text-muted text-sm mt-1">Closed or verified on this page</p>
         </Card>
-        <Card title="Failed Verification">
-          <div className="text-4xl font-bold text-bayora-danger">{statusCounts.VERIFIED === 0 ? 0 : '—'}</div>
-          <p className="text-bayora-text-muted text-sm mt-1">Tamper detection</p>
+        <Card title="Verified">
+          <div className="text-4xl font-bold text-bayora-primary">{statusCounts.VERIFIED || 0}</div>
+          <p className="text-bayora-text-muted text-sm mt-1">Verified runs on this page</p>
         </Card>
       </div>
 
@@ -68,7 +70,7 @@ export function OverviewPage() {
         <Card title="Recent Runs" className="lg:col-span-2">
           {isLoading ? (
             <div className="flex justify-center py-8"><LoadingSpinner /></div>
-          ) : runs.length === 0 ? (
+          ) : error ? <p className="text-bayora-text-muted">Check that the API is running, then try again.</p> : runs.length === 0 ? (
             <EmptyState
               icon={Clock}
               title="No runs yet"
@@ -100,30 +102,36 @@ export function OverviewPage() {
               )}
             />
           )}
+          <div className="flex items-center justify-between mt-5 pt-4 border-t border-bayora-border">
+            <button disabled={offset === 0 || isLoading} onClick={() => setOffset(Math.max(0, offset - 10))}>Previous</button>
+            <span className="text-sm text-bayora-text-muted">Page {offset / 10 + 1}</span>
+            <button disabled={runs.length < 10 || isLoading || !!error} onClick={() => setOffset(offset + 10)}>Next</button>
+          </div>
         </Card>
 
-        <Card title="Isolation Checks">
+        <Card title="Prototype capabilities">
+          <p className="text-sm text-bayora-text-muted mb-5">Design capabilities, not live isolation checks. Local processes do not provide container isolation.</p>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full bg-bayora-success" />
                 <span>Red/Blue separation</span>
               </div>
-              <Badge variant="success">Pass</Badge>
+              <Badge>Role-based</Badge>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full bg-bayora-success" />
                 <span>Observation firewall</span>
               </div>
-              <Badge variant="success">Active</Badge>
+              <Badge>Implemented</Badge>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full bg-bayora-success" />
                 <span>Hash chain integrity</span>
               </div>
-              <Badge variant="success">Verified</Badge>
+              <Badge>Verify per run</Badge>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -148,6 +156,7 @@ export function OverviewPage() {
           <div className="bg-bayora-surface border border-bayora-border rounded-xl p-6 w-full max-w-md">
             <h3 className="text-xl font-bold mb-4">Create New Run</h3>
             <form onSubmit={handleCreateRun} className="space-y-4">
+              {createRun.error && <p role="alert" className="text-bayora-danger">{createRun.error.message}</p>}
               <div>
                 <label className="block text-sm font-medium mb-1">Policy Version</label>
                 <input

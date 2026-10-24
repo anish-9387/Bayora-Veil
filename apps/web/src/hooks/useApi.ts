@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import type { Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult, PaginatedResponse, ApiResponse } from '../types';
+import type { Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult, ApiResponse } from '../types';
 
 export function useRuns(status?: string, limit = 50, offset = 0) {
-  return useQuery<ApiResponse<PaginatedResponse<Run>>>({
+  return useQuery<ApiResponse<Run[]>>({
     queryKey: ['runs', status, limit, offset],
     queryFn: () => api.runs.list({ status, limit, offset })
   });

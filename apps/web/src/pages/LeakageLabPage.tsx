@@ -1,3 +1,4 @@
+import { api } from '../api/client';
 import { useLeakageExperiment, useRuns } from '../hooks/useApi';
 import { PageHeader, Card, Badge, LoadingSpinner, EmptyState } from '../components/Layout';
 import { Play, BarChart2, Zap, Shield, AlertTriangle } from 'lucide-react';
@@ -8,11 +9,12 @@ export function LeakageLabPage() {
   const createExperiment = useLeakageExperiment();
   const [selectedRun, setSelectedRun] = useState<string>('');
   const [experimentType, setExperimentType] = useState<'blind_classification' | 'timing_leakage' | 'cross_tenant_access'>('blind_classification');
+  const [error, setError] = useState('');
   const [runningExperiment, setRunningExperiment] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [showResults, setShowResults] = useState<string | null>(null);
 
-  const runs = runsResponse?.data?.items || [];
+  const runs = runsResponse?.data || [];
 
   const configs: Record<string, any> = {
     blind_classification: { samples: 100, classes: ['prompt_injection', 'jailbreak', 'safe'], firewallEnabled: true },
@@ -23,21 +25,20 @@ export function LeakageLabPage() {
   const handleStartExperiment = async () => {
     if (!selectedRun) return;
     setRunningExperiment(true);
+    setError('');
     try {
       const res = await createExperiment.mutateAsync({
         type: experimentType,
         runId: selectedRun,
         config: configs[experimentType]
       });
-      // Simulate experiment completion
-      setTimeout(() => {
-        const mockResults = generateMockResults(experimentType);
-        setResults(mockResults);
-        setRunningExperiment(false);
-        setShowResults(res.data?.experimentId || 'mock-experiment-id');
-      }, 2000);
+      if (!res.data) throw new Error('Experiment did not return an ID');
+      const measured = await api.experiments.getResults(res.data.experimentId);
+      setResults(measured.data || []);
+      setShowResults(res.data.experimentId);
+      setRunningExperiment(false);
     } catch (error) {
-      console.error(error);
+      setError(error instanceof Error ? error.message : 'Experiment failed');
       setRunningExperiment(false);
     }
   };
@@ -46,9 +47,10 @@ export function LeakageLabPage() {
     <div className="space-y-6">
       <PageHeader
         title="Leakage Lab"
-        description="Measure information leakage through controlled experiments. Results show actual measurements, not claims."
+        description="Measure information leakage through controlled experiments. Compare raw and filtered channels using repeatable synthetic tests."
       />
 
+      {error && <p role="alert" className="text-bayora-danger">{error}</p>}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card title="Experiment Configuration">
           <div className="space-y-4">
@@ -104,7 +106,7 @@ export function LeakageLabPage() {
               )}
             </button>
 
-            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-400">
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-700">
               <AlertTriangle className="w-4 h-4 inline mr-1" />
               <strong>Methodology:</strong> Synthetic labels, controlled channels, measured inference accuracy vs baseline. Results are prototype measurements, not proof of universal security.
             </div>
@@ -112,7 +114,7 @@ export function LeakageLabPage() {
         </Card>
 
         <Card title="Experiment Types" className="lg:col-span-2">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             <ExperimentCard
               icon={Shield}
               title="Blind Classification"
@@ -142,13 +144,13 @@ export function LeakageLabPage() {
         <Card title={`Results: ${experimentType.replace('_', ' ').toUpperCase()}`}>
           <div className="flex items-center justify-between mb-4">
             <h4 className="font-medium">Measured Results</h4>
-            <button onClick={() => setShowResults(null)} className="text-sm text-bayora-text-muted hover:text-white">Close</button>
+            <button onClick={() => setShowResults(null)} className="text-sm text-bayora-text-muted hover:text-bayora-text">Close</button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {results.map((r, i) => (
               <div key={i} className="p-4 bg-bayora-dark rounded-lg">
                 <p className="text-bayora-text-muted text-sm">{r.metricName}</p>
-                <p className="text-2xl font-bold text-white">{r.metricValue}{r.metricName.includes('accuracy') || r.metricName.includes('rate') ? '%' : ''}</p>
+                <p className="text-2xl font-bold text-bayora-text">{Number(r.metricValue).toFixed(2)}</p>
                 <p className="text-xs text-bayora-text-muted mt-1">n={r.sampleCount} • {r.method}</p>
               </div>
             ))}
@@ -157,7 +159,7 @@ export function LeakageLabPage() {
             <p className="font-medium mb-2">Methodology & Caveats</p>
             <ul className="list-disc list-inside space-y-1 text-bayora-text-muted">
               <li>Synthetic test cases with balanced labels</li>
-              <li>Controlled environment — not production representative</li>
+              <li>Controlled environment - not production representative</li>
               <li>Baseline: random guess / majority class</li>
               <li>Results measure selected channels only</li>
               <li>Residual risks documented in Threat Model</li>
@@ -166,13 +168,13 @@ export function LeakageLabPage() {
         </Card>
       )}
 
-      <Card title="Experiment History">
+      {!showResults && <Card title="Experiment History">
         <EmptyState
           icon={BarChart2}
           title="No experiments run yet"
           description="Select a closed run and start an experiment to see measured leakage results here."
         />
-      </Card>
+      </Card>}
     </div>
   );
 }
@@ -181,11 +183,11 @@ function ExperimentCard({ icon: Icon, title, description, metric, badge }: { ico
   return (
     <div className="p-4 bg-bayora-dark border border-bayora-border rounded-lg hover:border-bayora-primary/50 transition-colors">
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-bayora-primary/20 flex items-center justify-center">
+        <div className="w-10 h-10 min-w-10 shrink-0 aspect-square rounded-full bg-bayora-primary/20 flex items-center justify-center">
           <Icon className="w-5 h-5 text-bayora-primary" />
         </div>
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <h4 className="font-semibold">{title}</h4>
             <Badge variant="primary" className="text-xs">{badge}</Badge>
           </div>
@@ -195,33 +197,4 @@ function ExperimentCard({ icon: Icon, title, description, metric, badge }: { ico
       </div>
     </div>
   );
-}
-
-function generateMockResults(type: string) {
-  const base = [
-    { metricName: 'Baseline Accuracy', metricValue: 33.3, sampleCount: 100, method: 'Random guess (3 classes)' },
-    { metricName: 'Observed Accuracy (firewall OFF)', metricValue: 67.2, sampleCount: 100, method: 'Logistic regression on raw telemetry' },
-    { metricName: 'Observed Accuracy (firewall ON)', metricValue: 38.1, sampleCount: 100, method: 'Logistic regression on sanitized telemetry' },
-    { metricName: 'Leakage Reduction', metricValue: 62.4, sampleCount: 100, method: '(67.2-38.1)/(67.2-33.3) × 100' }
-  ];
-
-  if (type === 'timing_leakage') {
-    return [
-      { metricName: 'Baseline Accuracy', metricValue: 50.0, sampleCount: 50, method: 'Random guess (2 profiles)' },
-      { metricName: 'Observed Accuracy (raw timing)', metricValue: 82.0, sampleCount: 50, method: 'Decision tree on latency' },
-      { metricName: 'Observed Accuracy (bucketed timing)', metricValue: 56.0, sampleCount: 50, method: 'Decision tree on 100ms buckets' },
-      { metricName: 'Leakage Reduction', metricValue: 72.2, sampleCount: 50, method: '(82-56)/(82-50) × 100' }
-    ];
-  }
-
-  if (type === 'cross_tenant_access') {
-    return [
-      { metricName: 'Red Payload Access Denied', metricValue: 100.0, sampleCount: 20, method: 'Direct API calls from Blue role' },
-      { metricName: 'Blue Rules Access Denied', metricValue: 100.0, sampleCount: 20, method: 'Direct API calls from Red role' },
-      { metricName: 'Raw Evidence Access Denied', metricValue: 100.0, sampleCount: 20, method: 'Direct API calls during blind run' },
-      { metricName: 'Audit Events Logged', metricValue: 60, sampleCount: 60, method: 'Denied requests recorded in audit log' }
-    ];
-  }
-
-  return base;
 }

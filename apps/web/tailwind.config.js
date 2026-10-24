@@ -8,16 +8,16 @@ export default {
     extend: {
       colors: {
         bayora: {
-          dark: '#0a0f1a',
-          surface: '#111827',
-          border: '#1f2937',
-          primary: '#3b82f6',
-          primaryHover: '#2563eb',
-          success: '#22c55e',
-          warning: '#f59e0b',
-          danger: '#ef4444',
-          text: '#f3f4f6',
-          textMuted: '#9ca3af'
+          dark: '#f2f4f7',
+          surface: '#ffffff',
+          border: '#dce1e9',
+          primary: { DEFAULT: '#334f75', hover: '#243b5b' },
+          primaryHover: '#243b5b',
+          success: '#15704b',
+          warning: '#955b0d',
+          danger: '#b52e45',
+          text: { DEFAULT: '#222c3b', muted: '#626e80' },
+          textMuted: '#626e80'
         }
       }
     }

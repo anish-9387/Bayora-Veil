@@ -55,12 +55,13 @@ export async function appendAuditEvent(
   const client = await getClient();
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [runId]);
 
     const sequenceResult = await client.query(
       'SELECT COALESCE(MAX(sequence), 0) + 1 as next_sequence FROM audit_events WHERE run_id = $1',
       [runId]
     );
-    const sequence = sequenceResult.rows[0].next_sequence;
+    const sequence = Number(sequenceResult.rows[0].next_sequence);
 
     const previousHashResult = await client.query(
       'SELECT event_hash FROM audit_events WHERE run_id = $1 ORDER BY sequence DESC LIMIT 1',
@@ -111,7 +112,7 @@ export async function getAuditEvents(runId: string): Promise<z.infer<typeof Audi
   return result.rows.map((row: AuditEventRow) => ({
     id: row.id,
     runId: row.run_id,
-    sequence: row.sequence,
+    sequence: Number(row.sequence),
     eventType: row.event_type,
     timestamp: row.timestamp,
     actor: row.actor,
@@ -123,7 +124,10 @@ export async function getAuditEvents(runId: string): Promise<z.infer<typeof Audi
 }
 
 export async function verifyHashChain(runId: string): Promise<z.infer<typeof VerifyResultSchema>> {
-  const events = await getAuditEvents(runId);
+  return verifyEventCopy(runId, await getAuditEvents(runId));
+}
+
+export function verifyEventCopy(runId: string, events: Awaited<ReturnType<typeof getAuditEvents>>) {
   const checks: Array<{ name: string; passed: boolean; detail?: string }> = [];
   const tamperedEvents: Array<{ sequence: number; expectedHash: string; actualHash: string }> = [];
 
@@ -200,6 +204,11 @@ export async function buildAndSignManifest(runId: string): Promise<z.infer<typeo
     throw new Error('Run not found');
   }
 
+  if (!['CLOSED', 'VERIFIED'].includes(run.status)) throw new Error('Close the run before signing');
+  const existing = await getManifest(runId);
+  if (existing) return existing;
+  const chain = await verifyHashChain(runId);
+  if (!chain.valid) throw new Error('Cannot sign an invalid event chain');
   const eventHashes = events.map(e => e.eventHash);
   const merkleRoot = buildMerkleRoot(eventHashes);
   const finalChainHash = events.length > 0 ? events[events.length - 1].eventHash : GENESIS_HASH;
@@ -277,7 +286,7 @@ export async function verifyManifest(runId: string): Promise<z.infer<typeof Veri
     final_chain_hash: manifestRow.final_chain_hash,
     signature: '',
     public_key_id: manifestRow.public_key_id,
-    event_count: manifestRow.event_count,
+    event_count: Number(manifestRow.event_count),
     policy_version: manifestRow.policy_version,
     model_adapter: manifestRow.model_adapter,
     created_at: manifestRow.created_at
@@ -292,7 +301,9 @@ export async function verifyManifest(runId: string): Promise<z.infer<typeof Veri
     { name: 'Signature valid', passed: signatureValid, detail: signatureValid ? undefined : 'Ed25519 signature verification failed' }
   ];
 
-  const allValid = chainResult.valid && merkleMatches && chainHashMatches && signatureValid;
+  checks.push({ name: 'Event count', passed: Number(manifestRow.event_count) === events.length });
+  const allValid = checks.every(check => check.passed);
+  if (allValid) await query("UPDATE runs SET status = 'VERIFIED' WHERE id = $1 AND status = 'CLOSED'", [runId]);
 
   return {
     valid: allValid,

@@ -116,6 +116,15 @@ ALTER TABLE run_manifests
     ALTER COLUMN merkle_root TYPE VARCHAR(71),
     ALTER COLUMN final_chain_hash TYPE VARCHAR(71);
 
+ALTER TABLE evidence_artifacts ADD COLUMN IF NOT EXISTS content JSONB;
+CREATE TABLE IF NOT EXISTS access_denials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id UUID,
+    actor VARCHAR(50) NOT NULL,
+    route TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_created_by ON runs(created_by);

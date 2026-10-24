@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useRun, useCommitPayload, useExecuteRun, useEvaluateRun, useCloseRun, useObservations, useReleaseObservation, useEvidence, useManifest, useVerifyRun, useSignManifest, usePublicKey } from '../hooks/useApi';
 import { PageHeader, Card, Badge, StatusBadge, DataTable, LoadingSpinner, EmptyState } from '../components/Layout';
 import { RefreshCw, CheckCircle, XCircle, Lock, Shield, Eye, FileText, Hash, Key, RotateCcw } from 'lucide-react';
@@ -7,8 +8,14 @@ import { useParams } from 'react-router-dom';
 import clsx from 'clsx';
 
 export function RunDetailPage() {
+  const role = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('bayora-role')) || 'orchestrator';
   const { id } = useParams<{ id: string }>();
-  const { data: runData, isLoading: runLoading, refetch: refetchRun } = useRun(id!);
+  const { data: runData, isLoading: runLoading, error: runError, refetch: refetchRun } = useRun(id!);
+  const { data: commitment } = useQuery({ queryKey: ['commitment', id, runData?.data?.status], queryFn: async () => {
+    const response = await fetch(`/api/v1/runs/${id}/commitment`, { headers: { 'X-Service-ID': 'web-dashboard', 'X-Service-Role': role } });
+    if (!response.ok) throw new Error('Could not load commitment');
+    return response.json() as Promise<{ data: { commitmentHash: string } | null }>;
+  }, enabled: !!id });
   const { data: observationsData, refetch: refetchObservations } = useObservations(id!);
   const { data: evidenceData, refetch: refetchEvidence } = useEvidence(id!);
   const { data: manifestData, refetch: refetchManifest } = useManifest(id!);
@@ -34,15 +41,16 @@ export function RunDetailPage() {
   const [showEvidenceDetail, setShowEvidenceDetail] = useState<string | null>(null);
 
   if (runLoading) return <div className="flex justify-center py-8"><LoadingSpinner size="lg" /></div>;
+  if (runError) return <div role="alert" className="glass-card p-8">Could not load this run: {runError.message} <button className="underline" onClick={() => refetchRun()}>Try again</button></div>;
   if (!run) return <div className="text-center py-8 text-bayora-text-muted">Run not found</div>;
 
-  const canCommit = run.status === 'CREATED';
-  const canExecute = run.status === 'COMMITTED';
-  const canEvaluate = run.status === 'RUNNING';
-  const canClose = run.status === 'EVALUATED';
+  const canCommit = role === 'red' && run.status === 'CREATED';
+  const canExecute = role === 'orchestrator' && run.status === 'COMMITTED';
+  const canEvaluate = role === 'orchestrator' && run.status === 'RUNNING';
+  const canClose = role === 'orchestrator' && run.status === 'EVALUATED';
   const canVerify = run.status === 'CLOSED' || run.status === 'VERIFIED';
-  const canSign = run.status === 'CLOSED';
-  const canViewEvidence = run.status === 'CLOSED' || run.status === 'VERIFIED';
+  const canSign = role === 'orchestrator' && run.status === 'CLOSED';
+  const canViewEvidence = role === 'auditor' && (run.status === 'CLOSED' || run.status === 'VERIFIED');
 
   const handleCommit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,6 +139,9 @@ export function RunDetailPage() {
         }
       />
 
+      {commitment?.data && <Card title="Payload commitment"><code className="text-xs break-all">{commitment.data.commitmentHash}</code></Card>}
+      {run.status === 'CREATED' && role !== 'red' && <p className="text-sm text-bayora-text-muted">Switch to Red team to commit a payload.</p>}
+      {[commitPayload.error, executeRun.error, evaluateRun.error, closeRun.error, releaseObservation.error, verifyRun.error, signManifest.error].filter(Boolean).map((error, i) => <p key={i} role="alert" className="glass-card p-4 text-bayora-danger">{error?.message}</p>)}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card title="Run Status" className="lg:col-span-2">
           <div className="space-y-4">
@@ -155,7 +166,7 @@ export function RunDetailPage() {
                     )}>
                       {isPast ? <CheckCircle className="w-5 h-5" /> : String(i + 1)}
                     </div>
-                    <span className={clsx('text-xs font-medium hidden sm:block whitespace-nowrap', isCurrent || isPast ? 'text-white' : 'text-bayora-text-muted')}>
+                    <span className={clsx('text-xs font-medium hidden sm:block whitespace-nowrap', isCurrent || isPast ? 'text-bayora-text' : 'text-bayora-text-muted')}>
                       {state}
                     </span>
                     {i < 5 && <div className={clsx('w-16 h-0.5 mx-2', isPast ? 'bg-bayora-success' : 'bg-bayora-border')} />}
@@ -179,7 +190,7 @@ export function RunDetailPage() {
               </div>
               <div className="p-3 bg-bayora-dark rounded-lg">
                 <p className="text-bayora-text-muted">Closed</p>
-                <p>{run.closedAt ? formatDistanceToNow(new Date(run.closedAt), { addSuffix: true }) : '—'}</p>
+                <p>{run.closedAt ? formatDistanceToNow(new Date(run.closedAt), { addSuffix: true }) : '-'}</p>
               </div>
             </div>
           </div>
@@ -235,7 +246,7 @@ export function RunDetailPage() {
             {canVerify && (
               <button
                 onClick={handleVerify}
-                className="w-full px-4 py-2 border border-bayora-border hover:bg-bayora-border text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                className="w-full px-4 py-2 border border-bayora-border hover:bg-bayora-border text-bayora-text rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
                 disabled={verifyRun.isPending}
               >
                 <Hash className="w-4 h-4" /> Verify Integrity
@@ -244,7 +255,7 @@ export function RunDetailPage() {
             {run.status === 'CLOSED' || run.status === 'VERIFIED' ? (
               <button
                 onClick={() => setShowReleaseModal(true)}
-                className="w-full px-4 py-2 border border-bayora-border hover:bg-bayora-border text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                className="w-full px-4 py-2 border border-bayora-border hover:bg-bayora-border text-bayora-text rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
               >
                 <Eye className="w-4 h-4" /> Release Observation
               </button>
@@ -303,7 +314,7 @@ export function RunDetailPage() {
           ) : (
             <div className="text-center py-8 text-bayora-text-muted">
               <Lock className="w-12 h-12 mx-auto mb-4 text-bayora-border" />
-              <p>Evidence is only accessible after run closure</p>
+              <p>Switch to Auditor after closure to inspect evidence</p>
               <p className="text-sm mt-1">Status: {run.status}</p>
             </div>
           )}
@@ -450,9 +461,9 @@ export function RunDetailPage() {
             <div className={`p-4 rounded-lg ${verifyRun.data.data?.valid ? 'bg-green-500/20 border border-green-500/30' : 'bg-red-500/20 border border-red-500/30'}`}>
               <div className="flex items-center gap-3 mb-4">
                 {verifyRun.data.data?.valid ? (
-                  <CheckCircle className="w-8 h-8 text-green-400" />
+                  <CheckCircle className="w-8 h-8 text-green-700" />
                 ) : (
-                  <XCircle className="w-8 h-8 text-red-400" />
+                  <XCircle className="w-8 h-8 text-red-700" />
                 )}
                 <div>
                   <p className="text-lg font-bold">{verifyRun.data.data?.valid ? 'VERIFIED' : 'TAMPERED'}</p>

@@ -112,8 +112,8 @@ describe('Replay Verification', () => {
 
   it('verifies evidence artifact digests match', () => {
     const artifacts = [
-      { id: 'art-1', run_id: 'run-1', artifact_type: 'prompt', storage_key: 'key1', digest: 'sha256:abc', access_class: 'red_private', created_at: '2026-01-01T12:00:00Z' },
-      { id: 'art-2', run_id: 'run-1', artifact_type: 'response', storage_key: 'key2', digest: 'sha256:def', access_class: 'target_private', created_at: '2026-01-01T12:00:01Z' }
+      { id: 'art-1', run_id: 'run-1', artifact_type: 'prompt', storage_key: 'key1', digest: hash('prompt'), access_class: 'red_private', created_at: '2026-01-01T12:00:00Z' },
+      { id: 'art-2', run_id: 'run-1', artifact_type: 'response', storage_key: 'key2', digest: hash('response'), access_class: 'target_private', created_at: '2026-01-01T12:00:01Z' }
     ];
 
     const allMatch = artifacts.every(a => a.digest.startsWith('sha256:') && a.digest.length === 71);

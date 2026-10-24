@@ -1,4 +1,4 @@
-import type { ApiResponse, PaginatedResponse, Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult } from '../types';
+import type { ApiResponse, Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult } from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -8,7 +8,7 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
     headers: {
       'Content-Type': 'application/json',
       'X-Service-ID': 'web-dashboard',
-      'X-Service-Role': 'orchestrator',
+      'X-Service-Role': (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('bayora-role')) || 'orchestrator',
       ...options.headers
     }
   });
@@ -24,8 +24,14 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
 
 export const api = {
   runs: {
-    list: (params?: { status?: string; limit?: number; offset?: number }) => 
-      fetchApi<PaginatedResponse<Run>>(`/runs?${new URLSearchParams(params as Record<string, string>)}`),
+    tamperCheck: (id: string) => fetchApi<{ original: VerifyResult; tampered: VerifyResult }>(`/runs/${id}/tamper-check`, { method: 'POST' }),
+    list: (params?: { status?: string; limit?: number; offset?: number }) => {
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(params || {})) {
+        if (value !== undefined) query.set(key, String(value));
+      }
+      return fetchApi<Run[]>(`/runs?${query}`);
+    },
     
     get: (id: string) => 
       fetchApi<Run>(`/runs/${id}`),

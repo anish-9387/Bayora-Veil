@@ -90,12 +90,8 @@ export class ObservationFirewall {
     return ObservationSchema.parse(observation);
   }
 
-  sanitizeForBlue(rawEvidence: RawEvidence): Partial<RawEvidence> {
-    return {
-      caseId: rawEvidence.caseId,
-      response: this.truncateResponse(rawEvidence.response),
-      timing: this.bucketTiming(rawEvidence.timing)
-    };
+  sanitizeForBlue(rawEvidence: RawEvidence): { caseId: string; outcome: string } {
+    return { caseId: rawEvidence.caseId, outcome: 'not_tested' };
   }
 
   sanitizeForRed(rawEvidence: RawEvidence): { caseId: string; outcome: string } {

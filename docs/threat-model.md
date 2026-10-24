@@ -16,7 +16,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    CONTROL PLANE                             │
 │  API Gateway • Orchestrator • Policy Service • Scheduler    │
-│  Trust: PARTIAL — Coordinates but no raw secret access      │
+│  Trust: PARTIAL - Coordinates but no raw secret access      │
 └─────────────────────────────────────────────────────────────┘
          │              │              │              │
     ┌────▼────┐    ┌────▼────┐    ┌────▼────┐    ┌────▼────┐

@@ -23,13 +23,13 @@ describe('Capability Matrix', () => {
   it('red cannot read blue capabilities', () => {
     const redCaps = CAPABILITY_MAP.red;
     const blueCaps = CAPABILITY_MAP.blue;
-    expect(redCaps.some(c => c.startsWith('blue.')).toBe(false));
+    expect(redCaps.some(c => c.startsWith('blue.'))).toBe(false);
   });
 
   it('blue cannot read red capabilities', () => {
     const redCaps = CAPABILITY_MAP.red;
     const blueCaps = CAPABILITY_MAP.blue;
-    expect(blueCaps.some(c => c.startsWith('red.')).toBe(false));
+    expect(blueCaps.some(c => c.startsWith('red.'))).toBe(false);
   });
 
   it('target has no access to red or blue stores', () => {

@@ -1,3 +1,5 @@
+import { query } from '../db/client.js';
+import { runLeakageExperiment } from '../services/experiments.js';
 import { Router, Request, Response, NextFunction } from 'express';
 import { validateBody, validateParams } from '../middleware/validate.js';
 import { requireCapability, requireRole } from '../middleware/auth.js';
@@ -32,7 +34,7 @@ import {
   completeLeakageExperiment,
   getExperimentResults
 } from '../services/run.js';
-import { buildAndSignManifest, verifyManifest, getSigningPublicKey, appendAuditEvent, getManifest } from '../services/audit.js';
+import { buildAndSignManifest, verifyManifest, getSigningPublicKey, appendAuditEvent, getManifest, getAuditEvents, verifyEventCopy } from '../services/audit.js';
 import { observationFirewall } from '../services/firewall.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -49,6 +51,39 @@ const allRoles: ActorRole[] = ['orchestrator', 'auditor', 'red', 'blue', 'target
 const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => 
   (req: Request, res: Response, next: NextFunction) => 
     Promise.resolve(fn(req, res, next)).catch(next);
+
+router.use('/runs/:id', asyncHandler(async (req, res, next) => {
+  if (req.method !== 'POST' || ['/verify', '/tamper-check', '/manifest/sign'].includes(req.path)) return next();
+  const parsed = RunIdParamSchema.safeParse(req.params);
+  if (!parsed.success) return res.status(400).json({ success: false, error: { message: 'Invalid run ID' } });
+  const run = await getRun(parsed.data.id);
+  if (!run) return res.status(404).json({ success: false, error: { message: 'Run not found' } });
+  if (['CLOSED', 'VERIFIED'].includes(run.status)) return res.status(409).json({ success: false, error: { message: 'Closed runs are immutable' } });
+  next();
+}));
+
+router.get('/runs/:id/commitment', requireRole(allRoles), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await getPayloadCommitment(req.params.id) });
+}));
+router.get('/runs/:id/red-payload', requireRole('red'), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+  const result = await query("SELECT content FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'prompt'", [req.params.id]);
+  res.json({ success: true, data: result.rows.map(row => row.content) });
+}));
+router.get('/runs/:id/blue-rules', requireRole('blue'), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+  const result = await query("SELECT content FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'defense_rule'", [req.params.id]);
+  res.json({ success: true, data: result.rows.map(row => row.content) });
+}));
+router.get('/runs/:id/audit', requireRole(auditorRoles), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await getAuditEvents(req.params.id) });
+}));
+router.post('/runs/:id/tamper-check', requireRole(auditorRoles), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+  const events = await getAuditEvents(req.params.id);
+  if (!events.length) return res.status(400).json({ success: false, error: { message: 'No events to verify' } });
+  const original = verifyEventCopy(req.params.id, events);
+  const copy = events.map(event => ({ ...event }));
+  copy[0].payloadDigest = 'sha256:' + 'f'.repeat(64);
+  res.json({ success: true, data: { original, tampered: verifyEventCopy(req.params.id, copy) } });
+}));
 
 router.post('/runs', requireRole(orchestratorRoles), validateBody(CreateRunSchema), asyncHandler(async (req, res) => {
   const run = await createRun(req.body);
@@ -146,13 +181,14 @@ router.get('/runs/:id/observations', requireRole(['orchestrator', 'auditor', 'bl
   res.json({ success: true, data: observations, requestId: req.requestId });
 }));
 
-router.get('/runs/:id/evidence', requireRole(['auditor', 'orchestrator']), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+router.get('/runs/:id/evidence', requireRole('auditor'), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
   const run = await getRun(req.params.id);
   if (!run || (run.status !== 'CLOSED' && run.status !== 'VERIFIED')) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Evidence only accessible after run closure', requestId: req.requestId }, requestId: req.requestId });
   }
 
-  const artifacts = await getEvidenceArtifacts(req.params.id);
+  const records = await query('SELECT * FROM evidence_artifacts WHERE run_id = $1', [req.params.id]);
+  const artifacts = records.rows.map(row => ({ id: row.id, runId: row.run_id, artifactType: row.artifact_type, storageKey: row.storage_key, digest: row.digest, accessClass: row.access_class, createdAt: row.created_at, content: row.content }));
   res.json({ success: true, data: artifacts, requestId: req.requestId });
 }));
 
@@ -180,7 +216,7 @@ router.get('/manifest/public-key', asyncHandler(async (req, res) => {
 }));
 
 router.post('/experiments/leakage', requireRole('orchestrator'), validateBody(LeakageExperimentConfigSchema), asyncHandler(async (req, res) => {
-  const experimentId = await createLeakageExperiment(req.body);
+  const experimentId = await runLeakageExperiment(req.body);
   res.status(201).json({ success: true, data: { experimentId }, requestId: req.requestId });
 }));
 

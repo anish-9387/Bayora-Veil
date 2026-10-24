@@ -19,7 +19,7 @@ import {
   Run,
   PayloadCommitment
 } from '@bayora/schemas';
-import { appendAuditEvent } from './audit.js';
+import { buildAndSignManifest, appendAuditEvent } from './audit.js';
 import { hash, generateRequestId } from '@bayora/crypto-utils';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -109,9 +109,11 @@ export async function transitionRun(runId: string, newStatus: RunStatus): Promis
     params.push(now);
   }
 
-  await query(`UPDATE runs SET ${updates.join(', ')} WHERE id = $1`, params);
+  params.push(run.status);
+  const updated = await query(`UPDATE runs SET ${updates.join(', ')} WHERE id = $1 AND status = $${params.length}`, params);
+  if (updated.rowCount !== 1) throw new Error('Run changed; reload before retrying');
 
-  await appendAuditEvent(runId, 'run_closed', 'orchestrator', { runId, newStatus, previousStatus: run.status });
+
   return true;
 }
 
@@ -129,6 +131,7 @@ export async function commitPayload(runId: string, payload: string): Promise<str
     [runId, commitmentHash]
   );
 
+  await storeRawPayload(runId, payload, `payload_${runId}`);
   await transitionRun(runId, 'COMMITTED');
   await appendAuditEvent(runId, 'payload_committed', 'red', { runId, commitmentHash });
 
@@ -150,27 +153,27 @@ export async function getPayloadCommitment(runId: string): Promise<PayloadCommit
 export async function storeRawPayload(runId: string, payload: string, storageKey: string) {
   const digest = hash(payload);
   await query(
-    `INSERT INTO evidence_artifacts (run_id, artifact_type, storage_key, digest, access_class)
-     VALUES ($1, 'prompt', $2, $3, 'red_private')`,
-    [runId, storageKey, digest]
+    `INSERT INTO evidence_artifacts (run_id, artifact_type, storage_key, digest, access_class, content)
+     VALUES ($1, 'prompt', $2, $3, 'red_private', $4)`,
+    [runId, storageKey, digest, JSON.stringify({ payload })]
   );
 }
 
 export async function storeTargetResponse(response: z.infer<typeof TargetResponseSchema>) {
   const digest = hash(response.response);
   await query(
-    `INSERT INTO evidence_artifacts (run_id, artifact_type, storage_key, digest, access_class)
-     VALUES ($1, 'response', $2, $3, 'target_private')`,
-    [response.runId, `response_${response.caseId}`, digest]
+    `INSERT INTO evidence_artifacts (run_id, artifact_type, storage_key, digest, access_class, content)
+     VALUES ($1, 'response', $2, $3, 'target_private', $4)`,
+    [response.runId, `response_${response.caseId}`, digest, JSON.stringify(response)]
   );
 }
 
 export async function storeDefenseRule(runId: string, rule: string, storageKey: string) {
   const digest = hash(rule);
   await query(
-    `INSERT INTO evidence_artifacts (run_id, artifact_type, storage_key, digest, access_class)
-     VALUES ($1, 'defense_rule', $2, $3, 'blue_private')`,
-    [runId, storageKey, digest]
+    `INSERT INTO evidence_artifacts (run_id, artifact_type, storage_key, digest, access_class, content)
+     VALUES ($1, 'defense_rule', $2, $3, 'blue_private', $4)`,
+    [runId, storageKey, digest, JSON.stringify({ rule })]
   );
 }
 
@@ -182,6 +185,10 @@ export async function releaseObservation(
   category: string,
   confidence: number
 ): Promise<Observation> {
+  const run = await getRun(runId);
+  if (run?.status !== 'EVALUATED') throw new Error('Observations can only be released after evaluation and before closure');
+  const evidence = await query("SELECT digest FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'response' ORDER BY created_at DESC LIMIT 1", [runId]);
+  if (!evidence.rows[0]) throw new Error('No target evidence available');
   const observation: Observation = {
     id: uuidv4(),
     runId,
@@ -190,7 +197,7 @@ export async function releaseObservation(
     severity: severity as any,
     category: category as any,
     confidence: Math.max(0, Math.min(1, confidence)),
-    evidenceDigest: `sha256:${'0'.repeat(64)}`, // Placeholder - actual digest would come from firewall
+    evidenceDigest: evidence.rows[0].digest,
     releasedAt: new Date().toISOString(),
     releasedAfterPhase: 'evaluation_closed'
   };
@@ -221,7 +228,7 @@ export async function getObservations(runId: string): Promise<Observation[]> {
     outcome: row.outcome,
     severity: row.severity,
     category: row.category,
-    confidence: row.confidence,
+    confidence: Number(row.confidence),
     evidenceDigest: row.evidence_digest,
     releasedAt: row.released_at,
     releasedAfterPhase: row.released_after_phase
@@ -250,18 +257,42 @@ export async function getEvidenceArtifacts(runId: string, accessClass?: string) 
 }
 
 export async function startExecution(runId: string) {
+  const run = await getRun(runId);
+  if (run?.status !== 'COMMITTED') throw new Error('Commit the payload before execution');
+  const stored = await query("SELECT content FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'prompt' ORDER BY created_at DESC LIMIT 1", [runId]);
+  const payload = stored.rows[0]?.content?.payload;
+  if (typeof payload !== 'string') throw new Error('Payload unavailable; create a new run and commit again');
+  const commitment = await getPayloadCommitment(runId);
+  if (hash(payload) !== commitment?.commitmentHash) throw new Error('Payload commitment mismatch');
+  const result = await fetch(`${process.env.TARGET_ADAPTER_URL || 'http://127.0.0.1:8000'}/execute`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ run_id: runId, case_id: 'case-001', prompt: payload, model_adapter: run.modelAdapter, timeout_ms: 30000 }),
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!result.ok) throw new Error(`Target adapter returned ${result.status}`);
+  const raw = await result.json() as Record<string, unknown>;
+  const response = TargetResponseSchema.parse({ runId: raw.run_id, caseId: raw.case_id, response: raw.response, tokensUsed: raw.tokens_used, latencyMs: raw.latency_ms, metadata: raw.metadata });
+  if (response.runId !== runId || response.caseId !== 'case-001') throw new Error('Target response identity mismatch');
   await transitionRun(runId, 'RUNNING');
   await appendAuditEvent(runId, 'execution_started', 'orchestrator', { runId });
+  await storeTargetResponse(response);
+  await appendAuditEvent(runId, 'target_response', 'target', { digest: hash(response.response), latencyBucketMs: Math.floor(response.latencyMs / 100) * 100 });
+  const rule = 'Flag unassessed outcomes; allow only a safe outcome';
+  const sanitized = { outcome: 'not_tested', evidenceDigest: hash(response.response) };
+  const action = sanitized.outcome === 'safe' ? 'allow' : 'flag';
+  await storeDefenseRule(runId, rule, `defense_${runId}`);
+  await appendAuditEvent(runId, 'defense_applied', 'blue', { action, ruleDigest: hash(rule), observation: sanitized });
 }
 
 export async function completeEvaluation(runId: string) {
   await transitionRun(runId, 'EVALUATED');
-  await appendAuditEvent(runId, 'execution_started', 'orchestrator', { runId });
+  await releaseObservation(runId, 'case-001', 'not_tested', 'low', 'not_tested', 0);
 }
 
 export async function closeRun(runId: string) {
   await transitionRun(runId, 'CLOSED');
   await appendAuditEvent(runId, 'run_closed', 'orchestrator', { runId });
+  await buildAndSignManifest(runId);
 }
 
 export async function createLeakageExperiment(config: z.infer<typeof LeakageExperimentConfigSchema>) {
@@ -275,18 +306,21 @@ export async function createLeakageExperiment(config: z.infer<typeof LeakageExpe
 }
 
 export async function completeLeakageExperiment(experimentId: string, results: Array<{ metricName: string; metricValue: number; sampleCount: number; method: string }>) {
-  await query('UPDATE experiments SET status = $1, finished_at = $2 WHERE id = $3', ['COMPLETED', new Date().toISOString(), experimentId]);
-
-  for (const result of results) {
-    await query(
-      `INSERT INTO experiment_results (experiment_id, metric_name, metric_value, sample_count, method)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [experimentId, result.metricName, result.metricValue, result.sampleCount, result.method]
-    );
-  }
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+    for (const result of results) {
+      await client.query(`INSERT INTO experiment_results (experiment_id, metric_name, metric_value, sample_count, method)
+        VALUES ($1, $2, $3, $4, $5)`, [experimentId, result.metricName, result.metricValue, result.sampleCount, result.method]);
+    }
+    await client.query("UPDATE experiments SET status = 'COMPLETED', finished_at = NOW() WHERE id = $1", [experimentId]);
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
 }
 
 export async function getExperimentResults(experimentId: string) {
   const result = await query('SELECT * FROM experiment_results WHERE experiment_id = $1', [experimentId]);
-  return result.rows;
+  return result.rows.map(row => ({ experimentId: row.experiment_id, metricName: row.metric_name,
+    metricValue: Number(row.metric_value), sampleCount: Number(row.sample_count), method: row.method, createdAt: row.created_at }));
 }

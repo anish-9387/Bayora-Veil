@@ -6,14 +6,15 @@ export function ThreatModelPage() {
     <div className="space-y-6">
       <PageHeader
         title="Threat Model"
-        description="Protected assets, trust boundaries, tested attack paths, and residual risks — honest assessment of what this prototype does and does not protect"
+        description="Protected assets, trust boundaries, tested attack paths, and residual risks - honest assessment of what this prototype does and does not protect"
       />
 
+      <Card title="Local execution profile"><p className="text-sm">Service roles are selected by the operator and sent as headers. This demonstrates route policies, not authenticated tenant isolation. The API, database, signing-key directory, and Windows account are trusted. Do not expose these services publicly.</p></Card>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Protected Assets">
           <div className="space-y-3">
-            <AssetRow icon={Lock} name="Red Team Payloads" description="Adversarial prompts, attack vectors, hidden labels" status="protected" detail="Stored in Red Cell private vault; only commitment digest exposed" />
-            <AssetRow icon={Shield} name="Blue Team Defense Rules" description="Detection logic, mitigation policies, classification thresholds" status="protected" detail="Stored in Blue Cell private store; inaccessible to Red Team" />
+            <AssetRow icon={Lock} name="Red Team Payloads" description="Adversarial prompts, attack vectors, hidden labels" status="protected" detail="Role-restricted database record; shared API and database remain trusted" />
+            <AssetRow icon={Shield} name="Blue Team Defense Rules" description="Detection logic, mitigation policies, classification thresholds" status="protected" detail="Role-restricted rule record; no separate OS identity in local mode" />
             <AssetRow icon={Eye} name="Target Model Interactions" description="Raw prompts, responses, tool traces, internal state" status="protected" detail="Isolated in Target Cell; fresh session per run; no cross-run context" />
             <AssetRow icon={FileText} name="Raw Evidence" description="Complete execution traces, stack traces, timing data" status="protected" detail="Restricted evidence store; released only post-closure to auditor" />
             <AssetRow icon={RotateCcw} name="Audit Trail Integrity" description="Event sequence, hash chain, Merkle root, signatures" status="protected" detail="Append-only audit log; signed manifest; tamper-evident verification" />
@@ -22,9 +23,9 @@ export function ThreatModelPage() {
 
         <Card title="Trust Boundaries">
           <div className="space-y-3">
-            <BoundaryRow icon={Server} name="Control Plane" description="API, orchestrator, policy service" trust="Partial" detail="Coordinates but does not access raw secrets by default" />
-            <BoundaryRow icon={Lock} name="Red Cell" description="Payload vault + runner" trust="High" detail="Separate container, network, credentials; Blue cannot reach" />
-            <BoundaryRow icon={Shield} name="Blue Cell" description="Defense runner + rules" trust="High" detail="Separate container, network, credentials; Red cannot reach" />
+            <BoundaryRow icon={Server} name="Control Plane" description="API, orchestrator, policy service" trust="Partial" detail="Trusted coordinator reads payloads to execute local tests" />
+            <BoundaryRow icon={Lock} name="Red Cell" description="Payload vault + runner" trust="High" detail="Local role check; no container or tenant boundary" />
+            <BoundaryRow icon={Shield} name="Blue Cell" description="Defense runner + rules" trust="High" detail="Local role check; no container or tenant boundary" />
             <BoundaryRow icon={Eye} name="Target Cell" description="Model adapter + context" trust="High" detail="Narrow API; no filesystem access to Red/Blue stores" />
             <BoundaryRow icon={FileText} name="Evidence Domain" description="Raw + sanitized streams" trust="High" detail="Firewall enforces allow-list; role-based access" />
             <BoundaryRow icon={RotateCcw} name="Audit Domain" description="Events + manifests" trust="High" detail="Append-only; separate signing key; read-only verification" />
@@ -35,12 +36,12 @@ export function ThreatModelPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Tested Attack Paths (Mitigated in Prototype)">
           <div className="space-y-3">
-            <AttackRow icon={Unlock} name="Cross-Team API Access" description="Blue calling Red payload endpoints; Red calling Blue rule endpoints" mitigated="Default-deny networking; capability-based auth; 403 on all unauthorized" status="tested" />
+            <AttackRow icon={Unlock} name="Cross-Team API Access" description="Blue calling Red payload endpoints; Red calling Blue rule endpoints" mitigated="Role checks return 403; service headers are trusted in local mode" status="tested" />
             <AttackRow icon={EyeOff} name="Raw Evidence During Blind Run" description="Blue/Red querying raw evidence before run closure" mitigated="Firewall blocks raw_evidence access until CLOSED + auditor role" status="tested" />
-            <AttackRow icon={Zap} name="Timing Side Channels" description="Inferring payload category from response latency" mitigated="Bucketing (100ms), noise addition, fixed-size envelopes, queued updates" status="partial" />
-            <AttackRow icon={Network} name="Cross-Run Context Reuse" description="Target model retaining conversation history across runs" mitigated="Fresh session per case; no shared KV cache; isolated context" status="tested" />
+            <AttackRow icon={Zap} name="Timing Side Channels" description="Inferring payload category from response latency" mitigated="100ms bucketing measured on synthetic timer tasks; other channels not tested" status="partial" />
+            <AttackRow icon={Network} name="Cross-Run Context Reuse" description="Target model retaining conversation history across runs" mitigated="Stateless requests; model-side caches and OS isolation are not verified" status="partial" />
             <AttackRow icon={Bug} name="Prompt Injection for Secrets" description="Target model prompted to reveal system instructions or payloads" mitigated="Mock model refuses; local model isolation; no secret access" status="tested" />
-            <AttackRow icon={Server} name="Resource Exhaustion" description="Long-running payloads consuming CPU/memory" mitigated="Per-run timeouts (30s), request queues, container resource limits" status="tested" />
+            <AttackRow icon={Server} name="Resource Exhaustion" description="Long-running payloads consuming CPU/memory" mitigated="30-second target request timeout; no local CPU or memory quota" status="tested" />
           </div>
         </Card>
 
@@ -61,7 +62,7 @@ export function ThreatModelPage() {
       <Card title="Residual Risks & Assumptions">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
-            <h4 className="font-medium text-amber-400 flex items-center gap-2"><AlertTriangle className="w-5 h-5" /> Assumptions</h4>
+            <h4 className="font-medium text-amber-700 flex items-center gap-2"><AlertTriangle className="w-5 h-5" /> Assumptions</h4>
             <ul className="list-disc list-inside space-y-2 text-sm text-bayora-text-muted">
               <li>Docker containers provide process-level isolation (not hardware)</li>
               <li>Network policies enforced by Docker Compose (not production CNI)</li>
@@ -73,7 +74,7 @@ export function ThreatModelPage() {
             </ul>
           </div>
           <div className="space-y-4">
-            <h4 className="font-medium text-red-400 flex items-center gap-2"><XCircle className="w-5 h-5" /> Residual Risks</h4>
+            <h4 className="font-medium text-red-700 flex items-center gap-2"><XCircle className="w-5 h-5" /> Residual Risks</h4>
             <ul className="list-disc list-inside space-y-2 text-sm text-bayora-text-muted">
               <li>Side-channel leakage not fully eliminated (timing, cache, power)</li>
               <li>Semantic inference from sanitized observations possible</li>
@@ -136,9 +137,9 @@ function AssetRow({ icon: Icon, name, description, status, detail }: { icon: Rea
 
 function BoundaryRow({ icon: Icon, name, description, trust, detail }: { icon: React.ComponentType<{ className?: string }>; name: string; description: string; trust: 'High' | 'Partial' | 'Low'; detail: string }) {
   const trustConfig = {
-    High: { variant: 'success' as const, color: 'text-green-400' },
-    Partial: { variant: 'warning' as const, color: 'text-amber-400' },
-    Low: { variant: 'danger' as const, color: 'text-red-400' }
+    High: { variant: 'success' as const, color: 'text-green-700' },
+    Partial: { variant: 'warning' as const, color: 'text-amber-700' },
+    Low: { variant: 'danger' as const, color: 'text-red-700' }
   };
   const cfg = trustConfig[trust];
   return (
@@ -195,7 +196,7 @@ function RiskRow({ icon: Icon, name, description, status, detail }: { icon: Reac
     <div className="p-4 bg-bayora-dark rounded-lg border border-bayora-border/50">
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
-          <Icon className="w-5 h-5 text-red-400" />
+          <Icon className="w-5 h-5 text-red-700" />
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
