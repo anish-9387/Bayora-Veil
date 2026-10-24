@@ -1,4 +1,4 @@
-import type { ApiResponse, PaginatedResponse, Run, Observation, EvidenceArtifact, AuditEvent, RunManifest, VerifyResult, ExperimentResult } from '../types';
+import type { ApiResponse, PaginatedResponse, Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult } from '../types';
 
 const API_BASE = '/api/v1';
 

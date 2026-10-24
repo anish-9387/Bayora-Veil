@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { ObservationSchema, EvidenceArtifactSchema, AccessClass, OutcomeCategory, Severity } from '@bayora/schemas';
 import { hash } from '@bayora/crypto-utils';
 import { v4 as uuidv4 } from 'uuid';
@@ -97,10 +98,10 @@ export class ObservationFirewall {
     };
   }
 
-  sanitizeForRed(rawEvidence: RawEvidence): Partial<RawEvidence> {
+  sanitizeForRed(rawEvidence: RawEvidence): { caseId: string; outcome: string } {
     return {
       caseId: rawEvidence.caseId,
-      outcome: 'policy_violation' // Generic, no specifics
+      outcome: 'policy_violation'
     };
   }
 
@@ -133,7 +134,7 @@ export class ObservationFirewall {
     };
 
     const allowed = allowedClasses[requesterRole] || ['public'];
-    return artifacts.filter(a => allowed.includes(a.access_class));
+    return artifacts.filter(a => allowed.includes(a.accessClass));
   }
 
   validateObservationSchema(data: unknown): z.infer<typeof ObservationSchema> | null {

@@ -233,7 +233,7 @@ describe('schemas', () => {
     });
 
     it('uses default timeout', () => {
-      const valid = { runId: 'a', caseId: 'b', prompt: 'c' };
+      const valid = { runId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', caseId: 'b', prompt: 'c' };
       const parsed = TargetRequestSchema.parse(valid);
       expect(parsed.timeoutMs).toBe(30000);
     });
@@ -245,19 +245,23 @@ describe('schemas', () => {
         runId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         caseId: 'case_001',
         observation: {
-          id: 'obs-1',
-          runId: 'run-1',
+          id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          runId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
           caseId: 'case_001',
           outcome: 'safe',
           severity: 'low',
           category: 'safe',
           confidence: 0.5,
           evidenceDigest: 'sha256:' + 'a'.repeat(64),
-          releasedAt: '2026-01-01T12:00:00Z',
+          releasedAt: '2026-01-01T12:00:00.000Z',
           releasedAfterPhase: 'evaluation_closed'
         }
       };
-      expect(BlueDefenseInputSchema.safeParse(valid).success).toBe(true);
+      const result = BlueDefenseInputSchema.safeParse(valid);
+      if (!result.success) {
+        console.log('Validation errors:', JSON.stringify(result.error.flatten(), null, 2));
+      }
+      expect(result.success).toBe(true);
     });
   });
 

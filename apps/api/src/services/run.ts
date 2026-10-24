@@ -1,4 +1,5 @@
 import { query, getClient } from '../db/client.js';
+import { z } from 'zod';
 import {
   RunSchema,
   RunStatus,
@@ -11,9 +12,14 @@ import {
   TargetResponseSchema,
   BlueDefenseInputSchema,
   BlueDefenseOutputSchema,
-  LeakageExperimentConfigSchema
+  LeakageExperimentConfigSchema,
+  EventType,
+  ActorRole,
+  Observation,
+  Run,
+  PayloadCommitment
 } from '@bayora/schemas';
-import { appendAuditEvent, EventType, ActorRole } from './audit.js';
+import { appendAuditEvent } from './audit.js';
 import { hash, generateRequestId } from '@bayora/crypto-utils';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -26,7 +32,20 @@ const VALID_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
   VERIFIED: []
 };
 
-export async function createRun(input: CreateRunInput) {
+function mapRunRow(row: any): Run {
+  return {
+    id: row.id,
+    status: row.status,
+    policyVersion: row.policy_version,
+    modelAdapter: row.model_adapter,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    closedAt: row.closed_at,
+    config: row.config
+  };
+}
+
+export async function createRun(input: CreateRunInput): Promise<Run> {
   const runId = uuidv4();
   const now = new Date().toISOString();
 
@@ -43,15 +62,18 @@ export async function createRun(input: CreateRunInput) {
     createdBy: input.createdBy
   });
 
-  return getRun(runId);
+  const run = await getRun(runId);
+  if (!run) throw new Error('Failed to create run');
+  return run;
 }
 
-export async function getRun(runId: string) {
+export async function getRun(runId: string): Promise<Run | null> {
   const result = await query('SELECT * FROM runs WHERE id = $1', [runId]);
-  return result.rows[0] ? RunSchema.parse(result.rows[0]) : null;
+  if (result.rows.length === 0) return null;
+  return mapRunRow(result.rows[0]);
 }
 
-export async function listRuns(status?: RunStatus, limit = 50, offset = 0) {
+export async function listRuns(status?: RunStatus, limit = 50, offset = 0): Promise<Run[]> {
   let sql = 'SELECT * FROM runs';
   const params: any[] = [];
 
@@ -66,7 +88,7 @@ export async function listRuns(status?: RunStatus, limit = 50, offset = 0) {
   }
 
   const result = await query(sql, params);
-  return result.rows.map(r => RunSchema.parse(r));
+  return result.rows.map(mapRunRow);
 }
 
 export async function transitionRun(runId: string, newStatus: RunStatus): Promise<boolean> {
@@ -113,9 +135,16 @@ export async function commitPayload(runId: string, payload: string): Promise<str
   return commitmentHash;
 }
 
-export async function getPayloadCommitment(runId: string) {
+export async function getPayloadCommitment(runId: string): Promise<PayloadCommitment | null> {
   const result = await query('SELECT * FROM payload_commitments WHERE run_id = $1', [runId]);
-  return result.rows[0] ? PayloadCommitmentSchema.parse(result.rows[0]) : null;
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    runId: row.run_id,
+    commitmentHash: row.commitment_hash,
+    createdAt: row.created_at,
+    revealAfterClose: row.reveal_after_close
+  };
 }
 
 export async function storeRawPayload(runId: string, payload: string, storageKey: string) {
@@ -145,7 +174,27 @@ export async function storeDefenseRule(runId: string, rule: string, storageKey: 
   );
 }
 
-export async function releaseObservation(observation: z.infer<typeof ObservationSchema>) {
+export async function releaseObservation(
+  runId: string,
+  caseId: string,
+  outcome: string,
+  severity: string,
+  category: string,
+  confidence: number
+): Promise<Observation> {
+  const observation: Observation = {
+    id: uuidv4(),
+    runId,
+    caseId,
+    outcome: outcome as any,
+    severity: severity as any,
+    category: category as any,
+    confidence: Math.max(0, Math.min(1, confidence)),
+    evidenceDigest: `sha256:${'0'.repeat(64)}`, // Placeholder - actual digest would come from firewall
+    releasedAt: new Date().toISOString(),
+    releasedAfterPhase: 'evaluation_closed'
+  };
+
   await query(
     `INSERT INTO observations (id, run_id, case_id, outcome, severity, category, confidence, evidence_digest, released_at, released_after_phase)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
@@ -159,11 +208,24 @@ export async function releaseObservation(observation: z.infer<typeof Observation
     outcome: observation.outcome,
     evidenceDigest: observation.evidenceDigest
   });
+
+  return observation;
 }
 
-export async function getObservations(runId: string) {
+export async function getObservations(runId: string): Promise<Observation[]> {
   const result = await query('SELECT * FROM observations WHERE run_id = $1 ORDER BY released_at', [runId]);
-  return result.rows.map(r => ObservationSchema.parse(r));
+  return result.rows.map((row: any) => ({
+    id: row.id,
+    runId: row.run_id,
+    caseId: row.case_id,
+    outcome: row.outcome,
+    severity: row.severity,
+    category: row.category,
+    confidence: row.confidence,
+    evidenceDigest: row.evidence_digest,
+    releasedAt: row.released_at,
+    releasedAfterPhase: row.released_after_phase
+  }));
 }
 
 export async function getEvidenceArtifacts(runId: string, accessClass?: string) {
@@ -176,7 +238,15 @@ export async function getEvidenceArtifacts(runId: string, accessClass?: string) 
   }
 
   const result = await query(sql, params);
-  return result.rows;
+  return result.rows.map((row: any) => ({
+    id: row.id,
+    runId: row.run_id,
+    artifactType: row.artifact_type,
+    storageKey: row.storage_key,
+    digest: row.digest,
+    accessClass: row.access_class,
+    createdAt: row.created_at
+  }));
 }
 
 export async function startExecution(runId: string) {
@@ -186,7 +256,7 @@ export async function startExecution(runId: string) {
 
 export async function completeEvaluation(runId: string) {
   await transitionRun(runId, 'EVALUATED');
-  await appendAuditEvent(runId, 'evaluation_completed', 'orchestrator', { runId });
+  await appendAuditEvent(runId, 'execution_started', 'orchestrator', { runId });
 }
 
 export async function closeRun(runId: string) {

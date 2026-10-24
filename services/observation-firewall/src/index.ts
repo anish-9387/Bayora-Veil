@@ -5,7 +5,7 @@ import pino from 'pino';
 import { hash, generateRequestId, bucketDuration, addTimingNoise } from '@bayora/crypto-utils';
 import { ObservationSchema, EvidenceArtifactSchema, AccessClass, OutcomeCategory, Severity, ActorRole } from '@bayora/schemas';
 
-const logger = pino({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
+const logger = pino.default({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3004', 10);
@@ -20,6 +20,7 @@ interface RawEvidence {
   toolTrace?: string;
   timing?: Record<string, number>;
   hiddenLabels?: Record<string, string>;
+  outcome?: string;
 }
 
 const evidenceStore = new Map<string, RawEvidence[]>();
@@ -106,7 +107,7 @@ app.post('/runs/:id/evidence', async (req, res) => {
   if (!evidenceStore.has(key)) {
     evidenceStore.set(key, []);
   }
-  evidenceStore.get(key)!.push(bodyResult.data);
+  evidenceStore.get(key)!.push({ ...bodyResult.data, runId });
 
   logger.info('evidence_stored', { runId, caseId: bodyResult.data.caseId });
 

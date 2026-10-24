@@ -5,7 +5,7 @@ import pino from 'pino';
 import { hash, generateRequestId } from '@bayora/crypto-utils';
 import { SubmitPayloadSchema, PayloadCommitmentSchema, ActorRole, EventType } from '@bayora/schemas';
 
-const logger = pino({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
+const logger = pino.default({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3002', 10);

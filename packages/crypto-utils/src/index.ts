@@ -1,5 +1,5 @@
 import { sha256 } from '@noble/hashes/sha256';
-import { ed25519 } from '@noble/ed25519';
+import * as ed25519 from '@noble/ed25519';
 import { randomBytes } from '@noble/hashes/utils';
 import { z } from 'zod';
 
@@ -77,7 +77,7 @@ export function buildMerkleRoot(hashes: string[]): string {
     return 'sha256:' + '0'.repeat(64);
   }
 
-  let currentLevel = hashes.map(h => Buffer.from(h.replace('sha256:', ''), 'hex'));
+  let currentLevel: Uint8Array[] = hashes.map(h => Buffer.from(h.replace('sha256:', ''), 'hex'));
 
   while (currentLevel.length > 1) {
     const nextLevel: Uint8Array[] = [];
@@ -93,14 +93,22 @@ export function buildMerkleRoot(hashes: string[]): string {
   return `sha256:${Buffer.from(currentLevel[0]).toString('hex')}`;
 }
 
+function canonicalizeValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeValue);
+  }
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    sorted[key] = canonicalizeValue((value as Record<string, unknown>)[key]);
+  }
+  return sorted;
+}
+
 export function canonicalizeEvent(event: Record<string, unknown>): string {
-  const sorted = Object.keys(event)
-    .sort()
-    .reduce((acc, key) => {
-      acc[key] = event[key];
-      return acc;
-    }, {} as Record<string, unknown>);
-  return JSON.stringify(sorted);
+  return JSON.stringify(canonicalizeValue(event));
 }
 
 export function generateRequestId(): string {
@@ -131,4 +139,17 @@ export function bucketDuration(ms: number, bucketSizeMs = 100): number {
 export function addTimingNoise(ms: number, maxNoiseMs = 50): number {
   const noise = (Math.random() - 0.5) * 2 * maxNoiseMs;
   return Math.max(0, Math.round(ms + noise));
+}
+
+let signingKeyPair: { privateKey: string; publicKey: string } | null = null;
+
+export function getSigningKey(): { privateKey: string; publicKey: string } {
+  if (!signingKeyPair) {
+    const { randomBytes } = require('@noble/hashes/utils');
+    const privateKey = Buffer.from(randomBytes(32)).toString('hex');
+    const { ed25519 } = require('@noble/ed25519');
+    const publicKey = Buffer.from(ed25519.getPublicKey(Buffer.from(privateKey, 'hex'))).toString('hex');
+    signingKeyPair = { privateKey, publicKey };
+  }
+  return signingKeyPair;
 }

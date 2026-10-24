@@ -121,7 +121,7 @@ export const RunManifestSchema = z.object({
   runId: z.string().uuid(),
   merkleRoot: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   finalChainHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-  signature: z.string(),
+  signature: z.string().min(128), // Ed25519 signature is 128 hex chars
   publicKeyId: z.string(),
   eventCount: z.number().int().nonnegative(),
   policyVersion: z.string(),

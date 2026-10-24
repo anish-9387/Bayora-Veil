@@ -5,6 +5,10 @@
   "scripts": {
     "test": "vitest run"
   },
+  "dependencies": {
+    "@bayora/schemas": "workspace:*",
+    "@bayora/crypto-utils": "workspace:*"
+  },
   "devDependencies": {
     "vitest": "^1.2.1",
     "supertest": "^6.3.4",

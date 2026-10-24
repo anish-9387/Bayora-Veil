@@ -5,7 +5,7 @@ import pino from 'pino';
 import { hash, generateRequestId, bucketDuration } from '@bayora/crypto-utils';
 import { ObservationSchema, BlueDefenseInputSchema, BlueDefenseOutputSchema, ActorRole, Severity, OutcomeCategory } from '@bayora/schemas';
 
-const logger = pino({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
+const logger = pino.default({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3003', 10);
@@ -105,12 +105,14 @@ app.post('/runs/:id/defend', async (req, res) => {
     reason = `Attack category ${observation.outcome} blocked by defense policy`;
   }
 
+  const modifiedObservation = (action as 'allow' | 'block' | 'flag' | 'modify') === 'modify' ? { ...observation, severity: 'low' as Severity } : undefined;
+
   const defenseOutput = {
     runId,
     caseId: observation.caseId,
     action,
     reason,
-    modifiedObservation: action === 'modify' ? { ...observation, severity: 'low' as Severity } : undefined,
+    modifiedObservation,
     metadata: { defenseConfig, latencyBucket: bucketDuration(observation.confidence * 1000) }
   };
 

@@ -6,9 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 import pino from 'pino';
 import { hash, canonicalizeEvent, buildMerkleRoot, generateRequestId, sign, verify, getSigningKey } from '@bayora/crypto-utils';
 import { AuditEventSchema, EventType, ActorRole, RunManifestSchema, VerifyResultSchema } from '@bayora/schemas';
-import { randomBytes } from '@noble/hashes/utils';
 
-const logger = pino({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
+const logger = pino.default({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3005', 10);
@@ -27,10 +26,11 @@ const SIGNING_KEY_ID = 'bayora-eval-key-001';
 
 let signingKeyPair: { privateKey: string; publicKey: string } | null = null;
 
-function getSigningKeyPair() {
+function getSigningKeyPair(): { privateKey: string; publicKey: string } {
   if (!signingKeyPair) {
+    const { randomBytes } = require('@noble/hashes/utils');
     const privateKey = Buffer.from(randomBytes(32)).toString('hex');
-    const { ed25519 } = await import('@noble/ed25519');
+    const { ed25519 } = require('@noble/ed25519');
     const publicKey = Buffer.from(ed25519.getPublicKey(Buffer.from(privateKey, 'hex'))).toString('hex');
     signingKeyPair = { privateKey, publicKey };
   }
@@ -320,7 +320,7 @@ app.post('/runs/:id/manifest/verify', async (req, res) => {
     return res.json({ success: true, data: { valid: false, runId, checks: [{ name: 'Manifest exists', passed: false, detail: 'No manifest found' }] }, requestId: (req as any).requestId });
   }
 
-  const chainResult = await fetch(`http://localhost:${PORT}/runs/${runId}/verify`).then(r => r.json());
+  const chainResult = await fetch(`http://localhost:${PORT}/runs/${runId}/verify`).then(r => r.json()) as { data?: { valid?: boolean; checks?: Array<{ name: string; passed: boolean; detail?: string }>; tamperedEvents?: Array<{ sequence: number; expectedHash: string; actualHash: string }> } };
   const eventsResult = await pool.query('SELECT * FROM audit_events WHERE run_id = $1 ORDER BY sequence ASC', [runId]);
   const events = eventsResult.rows;
 

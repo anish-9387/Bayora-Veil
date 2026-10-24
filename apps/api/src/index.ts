@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction, Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import pino from 'pino';
@@ -6,13 +6,28 @@ import pinoPretty from 'pino-pretty';
 import { requestIdMiddleware, requireAuth } from './middleware/auth.js';
 import apiRoutes from './routes/api.js';
 
+// Extend Express Request type globally
+declare global {
+  namespace Express {
+    interface Request {
+      requestId: string;
+      identity?: {
+        serviceId: string;
+        role: string;
+        capabilities: Array<{ capability: string; resource: string; action: string }>;
+      };
+      capabilities: Array<{ capability: string; resource: string; action: string }>;
+    }
+  }
+}
+
 const logger = pino(
   process.env.NODE_ENV === 'production'
     ? { level: 'info' }
     : { level: 'debug', transport: { target: 'pino-pretty', options: { colorize: true } } }
 );
 
-const app = express();
+const app: Express = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
 app.use(helmet({
@@ -27,7 +42,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(requestIdMiddleware);
 app.use(requireAuth);
 
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
@@ -44,7 +59,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', (req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     service: 'bayora-api',
@@ -55,16 +70,16 @@ app.get('/health', (req, res) => {
 
 app.use('/api/v1', apiRoutes);
 
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error({ err, requestId: (req as any).requestId }, 'Unhandled error');
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  logger.error({ err, requestId: req.requestId }, 'Unhandled error');
   res.status(500).json({
     success: false,
     error: {
       code: 'INTERNAL_ERROR',
       message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
-      requestId: (req as any).requestId
+      requestId: req.requestId
     },
-    requestId: (req as any).requestId
+    requestId: req.requestId
   });
 });
 

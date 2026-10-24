@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
-import { Shield, Activity, Search, FileText, AlertTriangle, Settings } from 'lucide-react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { Shield, Activity, Search, FileText, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 
 const navigation = [
@@ -90,7 +90,7 @@ export function Card({ title, children, className = '' }: { title?: string; chil
   );
 }
 
-export function Badge({ children, variant = 'default' }: { children: ReactNode; variant?: 'default' | 'success' | 'warning' | 'danger' | 'primary' }) {
+export function Badge({ children, variant = 'default', className = '' }: { children: ReactNode; variant?: 'default' | 'success' | 'warning' | 'danger' | 'primary'; className?: string }) {
   const variants = {
     default: 'bg-bayora-border text-bayora-text',
     success: 'bg-green-500/20 text-green-400 border border-green-500/30',
@@ -99,7 +99,7 @@ export function Badge({ children, variant = 'default' }: { children: ReactNode; 
     primary: 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
   };
   return (
-    <span className={clsx('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium', variants[variant])}>
+    <span className={clsx('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium', variants[variant], className)}>
       {children}
     </span>
   );

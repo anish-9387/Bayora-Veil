@@ -1,16 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
-import type { Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult, PaginatedResponse } from '../types';
+import type { Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult, PaginatedResponse, ApiResponse } from '../types';
 
 export function useRuns(status?: string, limit = 50, offset = 0) {
-  return useQuery({
+  return useQuery<ApiResponse<PaginatedResponse<Run>>>({
     queryKey: ['runs', status, limit, offset],
     queryFn: () => api.runs.list({ status, limit, offset })
   });
 }
 
 export function useRun(id: string) {
-  return useQuery({
+  return useQuery<ApiResponse<Run>>({
     queryKey: ['run', id],
     queryFn: () => api.runs.get(id),
     enabled: !!id
@@ -19,7 +19,7 @@ export function useRun(id: string) {
 
 export function useCreateRun() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<ApiResponse<Run>, Error, { policyVersion: string; modelAdapter: string; createdBy: string; config?: Record<string, unknown> }>({
     mutationFn: api.runs.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['runs'] });
@@ -29,8 +29,8 @@ export function useCreateRun() {
 
 export function useCommitPayload() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: string }) => api.runs.commit(id, payload),
+  return useMutation<ApiResponse<{ commitmentHash: string }>, Error, { id: string; payload: string }>({
+    mutationFn: ({ id, payload }) => api.runs.commit(id, payload),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['run', id] });
       queryClient.invalidateQueries({ queryKey: ['runs'] });
@@ -40,7 +40,7 @@ export function useCommitPayload() {
 
 export function useExecuteRun() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<ApiResponse<{ status: string }>, Error, string>({
     mutationFn: api.runs.execute,
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['run', id] });
@@ -51,7 +51,7 @@ export function useExecuteRun() {
 
 export function useEvaluateRun() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<ApiResponse<{ status: string }>, Error, string>({
     mutationFn: api.runs.evaluate,
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['run', id] });
@@ -62,7 +62,7 @@ export function useEvaluateRun() {
 
 export function useCloseRun() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<ApiResponse<{ status: string }>, Error, string>({
     mutationFn: api.runs.close,
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['run', id] });
@@ -72,7 +72,7 @@ export function useCloseRun() {
 }
 
 export function useObservations(runId: string) {
-  return useQuery({
+  return useQuery<ApiResponse<Observation[]>>({
     queryKey: ['observations', runId],
     queryFn: () => api.runs.observations(runId),
     enabled: !!runId
@@ -81,9 +81,8 @@ export function useObservations(runId: string) {
 
 export function useReleaseObservation() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { caseId: string; outcome: string; severity: string; category: string; confidence: number } }) => 
-      api.runs.releaseObservation(id, data),
+  return useMutation<ApiResponse<Observation>, Error, { id: string; data: { caseId: string; outcome: string; severity: string; category: string; confidence: number } }>({
+    mutationFn: ({ id, data }) => api.runs.releaseObservation(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['observations', id] });
       queryClient.invalidateQueries({ queryKey: ['run', id] });
@@ -92,7 +91,7 @@ export function useReleaseObservation() {
 }
 
 export function useEvidence(runId: string) {
-  return useQuery({
+  return useQuery<ApiResponse<EvidenceArtifact[]>>({
     queryKey: ['evidence', runId],
     queryFn: () => api.runs.evidence(runId),
     enabled: !!runId
@@ -100,7 +99,7 @@ export function useEvidence(runId: string) {
 }
 
 export function useManifest(runId: string) {
-  return useQuery({
+  return useQuery<ApiResponse<RunManifest>>({
     queryKey: ['manifest', runId],
     queryFn: () => api.runs.manifest(runId),
     enabled: !!runId
@@ -109,7 +108,7 @@ export function useManifest(runId: string) {
 
 export function useVerifyRun() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<ApiResponse<VerifyResult>, Error, string>({
     mutationFn: api.runs.verify,
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['run', id] });
@@ -119,7 +118,7 @@ export function useVerifyRun() {
 
 export function useSignManifest() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<ApiResponse<RunManifest>, Error, string>({
     mutationFn: api.runs.signManifest,
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['manifest', id] });
@@ -130,7 +129,7 @@ export function useSignManifest() {
 
 export function useLeakageExperiment() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<ApiResponse<{ experimentId: string }>, Error, { type: string; runId: string; config: Record<string, unknown> }>({
     mutationFn: api.experiments.createLeakage,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['experiments'] });
@@ -139,7 +138,7 @@ export function useLeakageExperiment() {
 }
 
 export function useExperimentResults(experimentId: string) {
-  return useQuery({
+  return useQuery<ApiResponse<ExperimentResult[]>>({
     queryKey: ['experimentResults', experimentId],
     queryFn: () => api.experiments.getResults(experimentId),
     enabled: !!experimentId
@@ -147,7 +146,7 @@ export function useExperimentResults(experimentId: string) {
 }
 
 export function usePublicKey() {
-  return useQuery({
+  return useQuery<ApiResponse<{ publicKey: string; keyId: string }>>({
     queryKey: ['publicKey'],
     queryFn: api.manifest.publicKey
   });

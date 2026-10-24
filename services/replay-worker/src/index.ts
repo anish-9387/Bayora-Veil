@@ -7,7 +7,7 @@ import pino from 'pino';
 import { hash, canonicalizeEvent, buildMerkleRoot, generateRequestId } from '@bayora/crypto-utils';
 import { AuditEventSchema, EventType, ActorRole, VerifyResultSchema } from '@bayora/schemas';
 
-const logger = pino({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
+const logger = pino.default({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3006', 10);
@@ -91,6 +91,7 @@ async function performReplay(runId: string, jobId: string) {
     jobId,
     runId,
     startedAt: new Date().toISOString(),
+    finishedAt: '',
     eventCount: events.length,
     artifactCount: artifacts.length,
     observationCount: observations.length,
@@ -146,7 +147,7 @@ async function performReplay(runId: string, jobId: string) {
   }
 
   if (manifest) {
-    const { ed25519 } = await import('@noble/ed25519');
+    const { ed25519 } = require('@noble/ed25519');
     const manifestData = {
       run_id: manifest.run_id,
       merkle_root: manifest.merkle_root,
@@ -210,7 +211,8 @@ async function performReplay(runId: string, jobId: string) {
     [jobId, 'replay_evidence_digests_match', replayResults.evidenceDigestsMatch ? 1 : 0, 1, 'deterministic_replay']
   );
 
-  logger.info('replay_job_completed', { runId, jobId, ...replayResults });
+  const { runId: _runId, jobId: _jobId, ...replayResultsRest } = replayResults;
+  logger.info('replay_job_completed', { runId, jobId, ...replayResultsRest });
 }
 
 app.get('/runs/:id/replay/status', async (req, res) => {

@@ -1,12 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { ServiceIdentitySchema, ActorRole, CapabilitySchema } from '@bayora/schemas';
 import { generateRequestId } from '@bayora/crypto-utils';
-
-export interface AuthenticatedRequest extends Request {
-  identity?: z.infer<typeof ServiceIdentitySchema>;
-  requestId: string;
-  capabilities: z.infer<typeof CapabilitySchema>[];
-}
 
 const CAPABILITY_MAP: Record<string, z.infer<typeof CapabilitySchema>[]> = {
   red: [
@@ -44,7 +39,7 @@ const CAPABILITY_MAP: Record<string, z.infer<typeof CapabilitySchema>[]> = {
   ]
 };
 
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const serviceId = req.headers['x-service-id'] as string;
   const role = req.headers['x-service-role'] as ActorRole;
 
@@ -87,7 +82,7 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
 }
 
 export function requireCapability(capability: string) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     const hasCapability = req.capabilities.some(c => c.capability === capability);
     if (!hasCapability) {
       return res.status(403).json({
@@ -104,9 +99,10 @@ export function requireCapability(capability: string) {
   };
 }
 
-export function requireRole(...roles: ActorRole[]) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    if (!req.identity || !roles.includes(req.identity.role)) {
+export function requireRole(roles: ActorRole | ActorRole[]) {
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.identity || !roleArray.includes(req.identity.role as ActorRole)) {
       return res.status(403).json({
         success: false,
         error: {
@@ -121,7 +117,7 @@ export function requireRole(...roles: ActorRole[]) {
   };
 }
 
-export function requestIdMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export function requestIdMiddleware(req: Request, res: Response, next: NextFunction) {
   req.requestId = (req.headers['x-request-id'] as string) || generateRequestId();
   res.setHeader('x-request-id', req.requestId);
   next();

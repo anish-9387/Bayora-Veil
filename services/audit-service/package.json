@@ -10,8 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@bayora/schemas": "*",
-    "@bayora/crypto-utils": "*",
+    "@bayora/schemas": "workspace:*",
+    "@bayora/crypto-utils": "workspace:*",
     "express": "^4.18.2",
     "zod": "^3.22.4",
     "pg": "^8.11.3",

@@ -1,6 +1,6 @@
 import { useRuns, useCreateRun } from '../hooks/useApi';
 import { PageHeader, Card, Badge, StatusBadge, DataTable, LoadingSpinner, EmptyState } from '../components/Layout';
-import { Plus, RefreshCw, ChevronRight, Clock, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { Plus, ChevronRight, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 

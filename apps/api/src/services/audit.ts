@@ -1,4 +1,5 @@
 import { query, getClient } from '../db/client.js';
+import { z } from 'zod';
 import {
   AuditEventSchema,
   EventType,
@@ -13,24 +14,36 @@ import {
   buildMerkleRoot,
   generateRequestId,
   sign,
-  verify
+  verify,
+  getSigningKey
 } from '@bayora/crypto-utils';
-import { randomBytes } from '@noble/hashes/utils';
 
 const GENESIS_HASH = 'sha256:' + '0'.repeat(64);
 const SIGNING_KEY_ID = 'bayora-eval-key-001';
-let signingKeyPair: { privateKey: string; publicKey: string } | null = null;
 
-function getSigningKey() {
-  if (!signingKeyPair) {
-    const privateKey = Buffer.from(randomBytes(32)).toString('hex');
-    const publicKey = (await import('@noble/ed25519')).ed25519.getPublicKey(Buffer.from(privateKey, 'hex'));
-    signingKeyPair = {
-      privateKey,
-      publicKey: Buffer.from(publicKey).toString('hex')
-    };
-  }
-  return signingKeyPair;
+interface AuditEventRow {
+  id: string;
+  run_id: string;
+  sequence: number;
+  event_type: EventType;
+  timestamp: string;
+  actor: ActorRole;
+  payload_digest: string;
+  previous_event_hash: string;
+  event_hash: string;
+  created_at: string;
+}
+
+interface ManifestRow {
+  run_id: string;
+  merkle_root: string;
+  final_chain_hash: string;
+  signature: string;
+  public_key_id: string;
+  event_count: number;
+  policy_version: string;
+  model_adapter: string;
+  created_at: string;
 }
 
 export async function appendAuditEvent(
@@ -95,7 +108,18 @@ export async function getAuditEvents(runId: string): Promise<z.infer<typeof Audi
     'SELECT * FROM audit_events WHERE run_id = $1 ORDER BY sequence ASC',
     [runId]
   );
-  return result.rows;
+  return result.rows.map((row: AuditEventRow) => ({
+    id: row.id,
+    runId: row.run_id,
+    sequence: row.sequence,
+    eventType: row.event_type,
+    timestamp: row.timestamp,
+    actor: row.actor,
+    payloadDigest: row.payload_digest,
+    previousEventHash: row.previous_event_hash,
+    eventHash: row.event_hash,
+    createdAt: row.created_at
+  }));
 }
 
 export async function verifyHashChain(runId: string): Promise<z.infer<typeof VerifyResultSchema>> {
@@ -108,33 +132,33 @@ export async function verifyHashChain(runId: string): Promise<z.infer<typeof Ver
 
   for (const event of events) {
     const eventData = {
-      run_id: event.run_id,
+      run_id: event.runId,
       sequence: event.sequence,
-      event_type: event.event_type,
+      event_type: event.eventType,
       timestamp: event.timestamp,
       actor: event.actor,
-      payload_digest: event.payload_digest,
-      previous_event_hash: event.previous_event_hash,
+      payload_digest: event.payloadDigest,
+      previous_event_hash: event.previousEventHash,
       event_hash: '',
-      created_at: event.created_at
+      created_at: event.createdAt
     };
 
     const canonicalEvent = canonicalizeEvent(eventData);
     const expectedHash = hash(canonicalEvent + previousHash);
 
-    const hashMatches = expectedHash === event.event_hash;
-    const chainMatches = event.previous_event_hash === previousHash;
+    const hashMatches = expectedHash === event.eventHash;
+    const chainMatches = event.previousEventHash === previousHash;
 
     checks.push({
       name: `Event ${event.sequence} hash`,
       passed: hashMatches,
-      detail: hashMatches ? undefined : `Expected ${expectedHash}, got ${event.event_hash}`
+      detail: hashMatches ? undefined : `Expected ${expectedHash}, got ${event.eventHash}`
     });
 
     checks.push({
       name: `Event ${event.sequence} chain`,
       passed: chainMatches,
-      detail: chainMatches ? undefined : `Expected previous ${previousHash}, got ${event.previous_event_hash}`
+      detail: chainMatches ? undefined : `Expected previous ${previousHash}, got ${event.previousEventHash}`
     });
 
     if (!hashMatches || !chainMatches) {
@@ -142,11 +166,11 @@ export async function verifyHashChain(runId: string): Promise<z.infer<typeof Ver
       tamperedEvents.push({
         sequence: event.sequence,
         expectedHash,
-        actualHash: event.event_hash
+        actualHash: event.eventHash
       });
     }
 
-    previousHash = event.event_hash;
+    previousHash = event.eventHash;
   }
 
   checks.push({
@@ -176,9 +200,9 @@ export async function buildAndSignManifest(runId: string): Promise<z.infer<typeo
     throw new Error('Run not found');
   }
 
-  const eventHashes = events.map(e => e.event_hash);
+  const eventHashes = events.map(e => e.eventHash);
   const merkleRoot = buildMerkleRoot(eventHashes);
-  const finalChainHash = events.length > 0 ? events[events.length - 1].event_hash : GENESIS_HASH;
+  const finalChainHash = events.length > 0 ? events[events.length - 1].eventHash : GENESIS_HASH;
 
   const manifestData = {
     run_id: runId,
@@ -212,14 +236,24 @@ export async function buildAndSignManifest(runId: string): Promise<z.infer<typeo
     [runId, merkleRoot, finalChainHash, signature, SIGNING_KEY_ID, events.length, run.policy_version, run.model_adapter, manifestData.created_at]
   );
 
-  return manifestData as z.infer<typeof RunManifestSchema>;
+  return {
+    runId: manifestData.run_id,
+    merkleRoot: manifestData.merkle_root,
+    finalChainHash: manifestData.final_chain_hash,
+    signature: manifestData.signature,
+    publicKeyId: manifestData.public_key_id,
+    eventCount: manifestData.event_count,
+    policyVersion: manifestData.policy_version,
+    modelAdapter: manifestData.model_adapter,
+    createdAt: manifestData.created_at
+  };
 }
 
 export async function verifyManifest(runId: string): Promise<z.infer<typeof VerifyResultSchema>> {
   const manifestResult = await query('SELECT * FROM run_manifests WHERE run_id = $1', [runId]);
-  const manifest = manifestResult.rows[0];
+  const manifestRow = manifestResult.rows[0] as ManifestRow | undefined;
 
-  if (!manifest) {
+  if (!manifestRow) {
     return {
       valid: false,
       runId,
@@ -229,32 +263,32 @@ export async function verifyManifest(runId: string): Promise<z.infer<typeof Veri
 
   const chainResult = await verifyHashChain(runId);
   const events = await getAuditEvents(runId);
-  const eventHashes = events.map(e => e.event_hash);
+  const eventHashes = events.map(e => e.eventHash);
   const computedMerkleRoot = buildMerkleRoot(eventHashes);
-  const computedFinalHash = events.length > 0 ? events[events.length - 1].event_hash : GENESIS_HASH;
+  const computedFinalHash = events.length > 0 ? events[events.length - 1].eventHash : GENESIS_HASH;
 
-  const merkleMatches = computedMerkleRoot === manifest.merkle_root;
-  const chainHashMatches = computedFinalHash === manifest.final_chain_hash;
+  const merkleMatches = computedMerkleRoot === manifestRow.merkle_root;
+  const chainHashMatches = computedFinalHash === manifestRow.final_chain_hash;
 
   const { publicKey } = getSigningKey();
   const manifestData = {
-    run_id: manifest.run_id,
-    merkle_root: manifest.merkle_root,
-    final_chain_hash: manifest.final_chain_hash,
+    run_id: manifestRow.run_id,
+    merkle_root: manifestRow.merkle_root,
+    final_chain_hash: manifestRow.final_chain_hash,
     signature: '',
-    public_key_id: manifest.public_key_id,
-    event_count: manifest.event_count,
-    policy_version: manifest.policy_version,
-    model_adapter: manifest.model_adapter,
-    created_at: manifest.created_at
+    public_key_id: manifestRow.public_key_id,
+    event_count: manifestRow.event_count,
+    policy_version: manifestRow.policy_version,
+    model_adapter: manifestRow.model_adapter,
+    created_at: manifestRow.created_at
   };
   const canonicalManifest = canonicalizeEvent(manifestData);
-  const signatureValid = verify(manifest.signature, canonicalManifest, publicKey);
+  const signatureValid = verify(manifestRow.signature, canonicalManifest, publicKey);
 
   const checks = [
     ...chainResult.checks,
-    { name: 'Merkle root', passed: merkleMatches, detail: merkleMatches ? undefined : `Expected ${computedMerkleRoot}, got ${manifest.merkle_root}` },
-    { name: 'Final chain hash', passed: chainHashMatches, detail: chainHashMatches ? undefined : `Expected ${computedFinalHash}, got ${manifest.final_chain_hash}` },
+    { name: 'Merkle root', passed: merkleMatches, detail: merkleMatches ? undefined : `Expected ${computedMerkleRoot}, got ${manifestRow.merkle_root}` },
+    { name: 'Final chain hash', passed: chainHashMatches, detail: chainHashMatches ? undefined : `Expected ${computedFinalHash}, got ${manifestRow.final_chain_hash}` },
     { name: 'Signature valid', passed: signatureValid, detail: signatureValid ? undefined : 'Ed25519 signature verification failed' }
   ];
 
@@ -270,7 +304,19 @@ export async function verifyManifest(runId: string): Promise<z.infer<typeof Veri
 
 export async function getManifest(runId: string) {
   const result = await query('SELECT * FROM run_manifests WHERE run_id = $1', [runId]);
-  return result.rows[0] || null;
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0] as ManifestRow;
+  return {
+    runId: row.run_id,
+    merkleRoot: row.merkle_root,
+    finalChainHash: row.final_chain_hash,
+    signature: row.signature,
+    publicKeyId: row.public_key_id,
+    eventCount: row.event_count,
+    policyVersion: row.policy_version,
+    modelAdapter: row.model_adapter,
+    createdAt: row.created_at
+  };
 }
 
 export async function getSigningPublicKey(): Promise<string> {

@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { z, ZodSchema } from 'zod';
-import { AuthenticatedRequest } from './auth.js';
 
 export function validateBody<T extends ZodSchema>(schema: T) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
       return res.status(400).json({
@@ -23,7 +22,7 @@ export function validateBody<T extends ZodSchema>(schema: T) {
 }
 
 export function validateParams<T extends ZodSchema>(schema: T) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     const result = schema.safeParse(req.params);
     if (!result.success) {
       return res.status(400).json({
@@ -43,7 +42,7 @@ export function validateParams<T extends ZodSchema>(schema: T) {
 }
 
 export function validateQuery<T extends ZodSchema>(schema: T) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     const result = schema.safeParse(req.query);
     if (!result.success) {
       return res.status(400).json({

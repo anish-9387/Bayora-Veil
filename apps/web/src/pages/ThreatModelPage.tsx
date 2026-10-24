@@ -1,5 +1,5 @@
 import { PageHeader, Card, Badge } from '../components/Layout';
-import { Shield, Lock, Unlock, AlertTriangle, CheckCircle, XCircle, Eye, EyeOff, Zap, Network, Server, Key, User, Bug } from 'lucide-react';
+import { Shield, Lock, Unlock, AlertTriangle, CheckCircle, XCircle, Eye, EyeOff, Zap, Network, Server, Key, User, Bug, FileText, RotateCcw, RefreshCw } from 'lucide-react';
 
 export function ThreatModelPage() {
   return (
@@ -16,7 +16,7 @@ export function ThreatModelPage() {
             <AssetRow icon={Shield} name="Blue Team Defense Rules" description="Detection logic, mitigation policies, classification thresholds" status="protected" detail="Stored in Blue Cell private store; inaccessible to Red Team" />
             <AssetRow icon={Eye} name="Target Model Interactions" description="Raw prompts, responses, tool traces, internal state" status="protected" detail="Isolated in Target Cell; fresh session per run; no cross-run context" />
             <AssetRow icon={FileText} name="Raw Evidence" description="Complete execution traces, stack traces, timing data" status="protected" detail="Restricted evidence store; released only post-closure to auditor" />
-            <AssetRow icon={Hash} name="Audit Trail Integrity" description="Event sequence, hash chain, Merkle root, signatures" status="protected" detail="Append-only audit log; signed manifest; tamper-evident verification" />
+            <AssetRow icon={RotateCcw} name="Audit Trail Integrity" description="Event sequence, hash chain, Merkle root, signatures" status="protected" detail="Append-only audit log; signed manifest; tamper-evident verification" />
           </div>
         </Card>
 
@@ -27,7 +27,7 @@ export function ThreatModelPage() {
             <BoundaryRow icon={Shield} name="Blue Cell" description="Defense runner + rules" trust="High" detail="Separate container, network, credentials; Red cannot reach" />
             <BoundaryRow icon={Eye} name="Target Cell" description="Model adapter + context" trust="High" detail="Narrow API; no filesystem access to Red/Blue stores" />
             <BoundaryRow icon={FileText} name="Evidence Domain" description="Raw + sanitized streams" trust="High" detail="Firewall enforces allow-list; role-based access" />
-            <BoundaryRow icon={Hash} name="Audit Domain" description="Events + manifests" trust="High" detail="Append-only; separate signing key; read-only verification" />
+            <BoundaryRow icon={RotateCcw} name="Audit Domain" description="Events + manifests" trust="High" detail="Append-only; separate signing key; read-only verification" />
           </div>
         </Card>
       </div>
@@ -93,7 +93,7 @@ export function ThreatModelPage() {
           <ControlBadge icon={Shield} name="Capability-Based Auth" status="implemented" detail="Scoped permissions per service role" />
           <ControlBadge icon={Eye} name="Observation Firewall" status="implemented" detail="Allow-list schema; no raw prompts/secrets" />
           <ControlBadge icon={Zap} name="Timing Bucketing" status="implemented" detail="100ms buckets + noise; fixed envelopes" />
-          <ControlBadge icon={Hash} name="Hash Chain + Merkle" status="implemented" detail="SHA-256 chain; Merkle root per run" />
+          <ControlBadge icon={RotateCcw} name="Hash Chain + Merkle" status="implemented" detail="SHA-256 chain; Merkle root per run" />
           <ControlBadge icon={Key} name="Ed25519 Signatures" status="implemented" detail="Manifest signing; external key preservation" />
           <ControlBadge icon={RefreshCw} name="Deterministic Replay" status="implemented" detail="Replay worker verifies evidence digests" />
           <ControlBadge icon={Bug} name="Leakage Measurement" status="implemented" detail="Blind classification + timing experiments" />
@@ -217,10 +217,11 @@ function ControlBadge({ icon: Icon, name, status, detail }: { icon: React.Compon
   };
   const cfg = statusConfig[status];
   const StatusIcon = cfg.icon;
+  const iconColor = status === 'implemented' ? 'text-green-500' : 'text-amber-500';
   return (
     <div className={`p-4 rounded-lg border ${cfg.bg} border-${status === 'implemented' ? 'green' : 'amber'}-500/30`}>
       <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-5 h-5" style={{ color: status === 'implemented' ? '#22c55e' : '#f59e0b' }} />
+        <Icon className={`w-5 h-5 ${iconColor}`} />
         <h4 className="font-semibold">{name}</h4>
       </div>
       <Badge variant={cfg.variant} className="text-xs mb-2 flex items-center gap-1">
@@ -231,5 +232,3 @@ function ControlBadge({ icon: Icon, name, status, detail }: { icon: React.Compon
     </div>
   );
 }
-
-import { Hash } from 'lucide-react';

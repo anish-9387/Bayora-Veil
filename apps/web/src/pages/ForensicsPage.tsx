@@ -1,8 +1,7 @@
 import { useRun, useManifest, useVerifyRun, useRuns } from '../hooks/useApi';
-import { PageHeader, Card, Badge, DataTable, LoadingSpinner, EmptyState } from '../components/Layout';
-import { Hash, Key, AlertTriangle, CheckCircle, XCircle, ChevronRight, RefreshCw, FileText, Search, Shield } from 'lucide-react';
+import { PageHeader, Card, Badge, LoadingSpinner, EmptyState } from '../components/Layout';
+import { Hash, Key, AlertTriangle, CheckCircle, XCircle, FileText, Search, Shield } from 'lucide-react';
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 
 export function ForensicsPage() {

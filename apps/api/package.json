@@ -12,8 +12,8 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
-    "@bayora/schemas": "*",
-    "@bayora/crypto-utils": "*",
+    "@bayora/schemas": "workspace:*",
+    "@bayora/crypto-utils": "workspace:*",
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "helmet": "^7.1.0",

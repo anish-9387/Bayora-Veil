@@ -1,22 +1,26 @@
 import pg from 'pg';
+import type { QueryResult, QueryResultRow, PoolClient, PoolConfig } from 'pg';
+
 const { Pool } = pg;
 
-const pool = new Pool({
+const poolConfig: PoolConfig = {
   host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
+  port: parseInt(process.env.DB_PORT || '5432', 10),
   database: process.env.DB_NAME || 'bayora_veil',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'postgres',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000
-});
+};
+
+const pool = new Pool(poolConfig);
 
 pool.on('error', (err) => {
   console.error('Unexpected database pool error', err);
 });
 
-export async function query<T = any>(text: string, params?: any[]): Promise<pg.QueryResult<T>> {
+export async function query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
   const start = Date.now();
   const result = await pool.query<T>(text, params);
   const duration = Date.now() - start;
@@ -26,7 +30,7 @@ export async function query<T = any>(text: string, params?: any[]): Promise<pg.Q
   return result;
 }
 
-export async function getClient(): Promise<pg.PoolClient> {
+export async function getClient(): Promise<PoolClient> {
   return pool.connect();
 }
 

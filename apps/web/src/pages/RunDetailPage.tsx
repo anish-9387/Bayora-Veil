@@ -1,6 +1,6 @@
 import { useRun, useCommitPayload, useExecuteRun, useEvaluateRun, useCloseRun, useObservations, useReleaseObservation, useEvidence, useManifest, useVerifyRun, useSignManifest, usePublicKey } from '../hooks/useApi';
 import { PageHeader, Card, Badge, StatusBadge, DataTable, LoadingSpinner, EmptyState } from '../components/Layout';
-import { RefreshCw, Clock, CheckCircle, XCircle, Lock, Shield, Eye, FileText, Hash, Key, RotateCcw } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, Lock, Shield, Eye, FileText, Hash, Key, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { useParams } from 'react-router-dom';
@@ -8,7 +8,6 @@ import clsx from 'clsx';
 
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const { data: runData, isLoading: runLoading, refetch: refetchRun } = useRun(id!);
   const { data: observationsData, refetch: refetchObservations } = useObservations(id!);
   const { data: evidenceData, refetch: refetchEvidence } = useEvidence(id!);
@@ -45,25 +44,75 @@ export function RunDetailPage() {
   const canSign = run.status === 'CLOSED';
   const canViewEvidence = run.status === 'CLOSED' || run.status === 'VERIFIED';
 
-  const handleCommit = (e: React.FormEvent) => {
+  const handleCommit = async (e: React.FormEvent) => {
     e.preventDefault();
-    commitPayload.mutate({ id: run.id, payload: commitPayloadText }, {
-      onSuccess: () => { setShowCommitModal(false); setCommitPayloadText(''); refetchRun(); }
-    });
+    try {
+      await commitPayload.mutateAsync({ id: run.id, payload: commitPayloadText });
+      setShowCommitModal(false);
+      setCommitPayloadText('');
+      refetchRun();
+    } catch (error) {
+      console.error('Commit failed:', error);
+    }
   };
 
-  const handleRelease = (e: React.FormEvent) => {
+  const handleRelease = async (e: React.FormEvent) => {
     e.preventDefault();
-    releaseObservation.mutate({ id: run.id, data: releaseForm }, {
-      onSuccess: () => { setShowReleaseModal(false); refetchObservations(); refetchRun(); }
-    });
+    try {
+      await releaseObservation.mutateAsync({ id: run.id, data: releaseForm });
+      setShowReleaseModal(false);
+      refetchObservations();
+      refetchRun();
+    } catch (error) {
+      console.error('Release failed:', error);
+    }
   };
 
-  const handleExecute = () => executeRun.mutate(run.id, { onSuccess: refetchRun });
-  const handleEvaluate = () => evaluateRun.mutate(run.id, { onSuccess: refetchRun });
-  const handleClose = () => closeRun.mutate(run.id, { onSuccess: () => { refetchRun(); refetchObservations(); refetchEvidence(); } });
-  const handleVerify = () => verifyRun.mutate(run.id);
-  const handleSign = () => signManifest.mutate(run.id, { onSuccess: refetchManifest });
+  const handleExecute = async () => {
+    try {
+      await executeRun.mutateAsync(run.id);
+      refetchRun();
+    } catch (error) {
+      console.error('Execute failed:', error);
+    }
+  };
+
+  const handleEvaluate = async () => {
+    try {
+      await evaluateRun.mutateAsync(run.id);
+      refetchRun();
+    } catch (error) {
+      console.error('Evaluate failed:', error);
+    }
+  };
+
+  const handleClose = async () => {
+    try {
+      await closeRun.mutateAsync(run.id);
+      refetchRun();
+      refetchObservations();
+      refetchEvidence();
+    } catch (error) {
+      console.error('Close failed:', error);
+    }
+  };
+
+  const handleVerify = async () => {
+    try {
+      await verifyRun.mutateAsync(run.id);
+    } catch (error) {
+      console.error('Verify failed:', error);
+    }
+  };
+
+  const handleSign = async () => {
+    try {
+      await signManifest.mutateAsync(run.id);
+      refetchManifest();
+    } catch (error) {
+      console.error('Sign failed:', error);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -74,7 +123,7 @@ export function RunDetailPage() {
           <div className="flex items-center gap-2">
             <StatusBadge status={run.status} />
             {run.status !== 'VERIFIED' && run.status !== 'CREATED' && (
-              <button onClick={refetchRun} className="p-2 hover:bg-bayora-border rounded-lg transition-colors" title="Refresh">
+              <button onClick={() => refetchRun()} className="p-2 hover:bg-bayora-border rounded-lg transition-colors" title="Refresh">
                 <RefreshCw className="w-4 h-4" />
               </button>
             )}
@@ -398,20 +447,20 @@ export function RunDetailPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-bayora-surface border border-bayora-border rounded-xl p-6 w-full max-w-md">
             <h3 className="text-xl font-bold mb-4">Verification Result</h3>
-            <div className={`p-4 rounded-lg ${verifyRun.data.data.valid ? 'bg-green-500/20 border border-green-500/30' : 'bg-red-500/20 border border-red-500/30'}`}>
+            <div className={`p-4 rounded-lg ${verifyRun.data.data?.valid ? 'bg-green-500/20 border border-green-500/30' : 'bg-red-500/20 border border-red-500/30'}`}>
               <div className="flex items-center gap-3 mb-4">
-                {verifyRun.data.data.valid ? (
+                {verifyRun.data.data?.valid ? (
                   <CheckCircle className="w-8 h-8 text-green-400" />
                 ) : (
                   <XCircle className="w-8 h-8 text-red-400" />
                 )}
                 <div>
-                  <p className="text-lg font-bold">{verifyRun.data.data.valid ? 'VERIFIED' : 'TAMPERED'}</p>
+                  <p className="text-lg font-bold">{verifyRun.data.data?.valid ? 'VERIFIED' : 'TAMPERED'}</p>
                   <p className="text-sm text-bayora-text-muted">Hash chain integrity check</p>
                 </div>
               </div>
               <div className="space-y-2 text-sm">
-                {verifyRun.data.data.checks.map((check, i) => (
+                {verifyRun.data.data?.checks?.map((check, i) => (
                   <div key={i} className="flex items-center justify-between">
                     <span>{check.name}</span>
                     <Badge variant={check.passed ? 'success' : 'danger'}>{check.passed ? 'PASS' : 'FAIL'}</Badge>
@@ -426,5 +475,3 @@ export function RunDetailPage() {
     </div>
   );
 }
-
-import clsx from 'clsx';

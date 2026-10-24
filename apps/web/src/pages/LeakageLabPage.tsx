@@ -1,6 +1,6 @@
-import { useLeakageExperiment, useExperimentResults, useRuns } from '../hooks/useApi';
-import { PageHeader, Card, Badge, DataTable, LoadingSpinner, EmptyState } from '../components/Layout';
-import { Play, RefreshCw, BarChart2, Zap, Shield, AlertTriangle, ChevronRight } from 'lucide-react';
+import { useLeakageExperiment, useRuns } from '../hooks/useApi';
+import { PageHeader, Card, Badge, LoadingSpinner, EmptyState } from '../components/Layout';
+import { Play, BarChart2, Zap, Shield, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 
 export function LeakageLabPage() {
@@ -8,7 +8,7 @@ export function LeakageLabPage() {
   const createExperiment = useLeakageExperiment();
   const [selectedRun, setSelectedRun] = useState<string>('');
   const [experimentType, setExperimentType] = useState<'blind_classification' | 'timing_leakage' | 'cross_tenant_access'>('blind_classification');
-  const [runningExperiment, setRunningExperiment] = useState<string | null>(null);
+  const [runningExperiment, setRunningExperiment] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [showResults, setShowResults] = useState<string | null>(null);
 
@@ -22,7 +22,7 @@ export function LeakageLabPage() {
 
   const handleStartExperiment = async () => {
     if (!selectedRun) return;
-    setRunningExperiment(selectedRun);
+    setRunningExperiment(true);
     try {
       const res = await createExperiment.mutateAsync({
         type: experimentType,
@@ -33,12 +33,12 @@ export function LeakageLabPage() {
       setTimeout(() => {
         const mockResults = generateMockResults(experimentType);
         setResults(mockResults);
-        setRunningExperiment(null);
-        setShowResults(res.data.experimentId);
+        setRunningExperiment(false);
+        setShowResults(res.data?.experimentId || 'mock-experiment-id');
       }, 2000);
     } catch (error) {
       console.error(error);
-      setRunningExperiment(null);
+      setRunningExperiment(false);
     }
   };
 
@@ -58,7 +58,7 @@ export function LeakageLabPage() {
                 value={selectedRun}
                 onChange={(e) => setSelectedRun(e.target.value)}
                 className="w-full"
-                disabled={runningExperiment}
+                disabled={!!runningExperiment}
               >
                 <option value="">Choose a closed run...</option>
                 {runs.filter(r => r.status === 'CLOSED' || r.status === 'VERIFIED').map(r => (
@@ -88,7 +88,7 @@ export function LeakageLabPage() {
 
             <button
               onClick={handleStartExperiment}
-              disabled={!selectedRun || runningExperiment || createExperiment.isPending}
+              disabled={!selectedRun || !!runningExperiment || createExperiment.isPending}
               className="w-full px-4 py-2 bg-bayora-primary hover:bg-bayora-primary-hover text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
             >
               {runningExperiment ? (
