@@ -37,7 +37,7 @@ A prototype for **blind, isolated, measurable, and verifiable AI safety evaluati
 
 ### Prerequisites
 - Docker & Docker Compose
-- Node.js 20+ (for local development)
+- Node.js 20.12+ (for local development)
 - Python 3.11+ (for target adapter)
 
 ### Using Docker Compose (Recommended)
@@ -60,6 +60,12 @@ Services will be available at:
 
 ### Local Development
 
+Copy `.env.example` to `.env` in the repository root and set `DB_HOST`, `DB_PORT`,
+`DB_NAME`, `DB_USER`, and `DB_PASSWORD` for your PostgreSQL instance. Create the
+database first. The API, migration, and seed commands load this file automatically;
+existing shell environment variables take precedence. Both database commands create
+all nine tables before inserting seed data.
+
 ```bash
 # Install dependencies
 npm install
@@ -73,9 +79,17 @@ npm run db:migrate
 # Seed demo data
 npm run db:seed
 
-# Start all services
-npm run dev
+# Start the API and dashboard together (also runs migrations)
+pnpm dev
 ```
+
+After initial setup, run **`pnpm dev`** from the repository root. Keep your
+PostgreSQL server running with the credentials in `.env`. Open
+http://localhost:5173 for the dashboard; the API runs at http://localhost:3001.
+Press Ctrl+C to stop both servers. If migration fails, neither server starts.
+Demo seeding remains a separate, optional `pnpm db:seed` command.
+This local command starts the API and dashboard; the separate services listed
+under Docker Compose are not started by it.
 
 ## Demo Script
 

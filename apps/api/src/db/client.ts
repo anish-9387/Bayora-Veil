@@ -1,5 +1,12 @@
 import pg from 'pg';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { loadEnvFile } from 'node:process';
 import type { QueryResult, QueryResultRow, PoolClient, PoolConfig } from 'pg';
+
+// pnpm runs API scripts from apps/api; resolve the root .env independently of cwd.
+const envPath = resolve(__dirname, '../../../../.env');
+if (existsSync(envPath)) loadEnvFile(envPath);
 
 const { Pool } = pg;
 

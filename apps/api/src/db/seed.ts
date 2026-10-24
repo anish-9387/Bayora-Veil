@@ -1,11 +1,12 @@
 import { query, closePool } from './client.js';
-import { seedData } from './schema.js';
+import { schema, seedData } from './schema.js';
 import { hash } from '@bayora/crypto-utils';
 
 async function seed() {
   console.log('Seeding demo data...');
 
   try {
+    await query(schema);
     await query(seedData);
 
     const runId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';

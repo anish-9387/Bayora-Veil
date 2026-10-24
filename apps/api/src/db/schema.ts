@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS payload_commitments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    commitment_hash VARCHAR(70) NOT NULL,
+    commitment_hash VARCHAR(71) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reveal_after_close BOOLEAN NOT NULL DEFAULT TRUE,
     revealed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS observations (
     severity VARCHAR(20) NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
     category VARCHAR(50) NOT NULL,
     confidence DECIMAL(3,2) NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
-    evidence_digest VARCHAR(70) NOT NULL,
+    evidence_digest VARCHAR(71) NOT NULL,
     released_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     released_after_phase VARCHAR(50) NOT NULL
 );
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS evidence_artifacts (
     run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     artifact_type VARCHAR(50) NOT NULL CHECK (artifact_type IN ('prompt', 'response', 'defense_rule', 'stack_trace', 'tool_trace', 'timing', 'other')),
     storage_key VARCHAR(255) NOT NULL,
-    digest VARCHAR(70) NOT NULL,
+    digest VARCHAR(71) NOT NULL,
     access_class VARCHAR(20) NOT NULL CHECK (access_class IN ('public', 'red_private', 'blue_private', 'target_private', 'auditor_only', 'raw_evidence')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -63,9 +63,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
     event_type VARCHAR(50) NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL,
     actor VARCHAR(50) NOT NULL,
-    payload_digest VARCHAR(70) NOT NULL,
-    previous_event_hash VARCHAR(70) NOT NULL,
-    event_hash VARCHAR(70) NOT NULL,
+    payload_digest VARCHAR(71) NOT NULL,
+    previous_event_hash VARCHAR(71) NOT NULL,
+    event_hash VARCHAR(71) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(run_id, sequence)
 );
@@ -73,8 +73,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
 -- Run manifests table
 CREATE TABLE IF NOT EXISTS run_manifests (
     run_id UUID PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
-    merkle_root VARCHAR(70) NOT NULL,
-    final_chain_hash VARCHAR(70) NOT NULL,
+    merkle_root VARCHAR(71) NOT NULL,
+    final_chain_hash VARCHAR(71) NOT NULL,
     signature VARCHAR(128) NOT NULL,
     public_key_id VARCHAR(100) NOT NULL,
     event_count BIGINT NOT NULL DEFAULT 0,
@@ -103,6 +103,18 @@ CREATE TABLE IF NOT EXISTS experiment_results (
     method VARCHAR(200) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Upgrade existing tables: sha256: plus 64 hex characters requires 71 characters.
+ALTER TABLE payload_commitments ALTER COLUMN commitment_hash TYPE VARCHAR(71);
+ALTER TABLE observations ALTER COLUMN evidence_digest TYPE VARCHAR(71);
+ALTER TABLE evidence_artifacts ALTER COLUMN digest TYPE VARCHAR(71);
+ALTER TABLE audit_events
+    ALTER COLUMN payload_digest TYPE VARCHAR(71),
+    ALTER COLUMN previous_event_hash TYPE VARCHAR(71),
+    ALTER COLUMN event_hash TYPE VARCHAR(71);
+ALTER TABLE run_manifests
+    ALTER COLUMN merkle_root TYPE VARCHAR(71),
+    ALTER COLUMN final_chain_hash TYPE VARCHAR(71);
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter=@bayora/api dev & pnpm --filter=@bayora/web dev",
+    "dev": "pnpm db:migrate && concurrently --kill-others --names api,web \"pnpm --filter=@bayora/api dev\" \"pnpm --filter=@bayora/web dev\"",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
@@ -17,7 +17,7 @@
     "typescript": "^5.3.3"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.12.0"
   },
   "packageManager": "pnpm@9.0.0"
 }
