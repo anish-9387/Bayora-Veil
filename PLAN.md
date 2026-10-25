@@ -414,7 +414,6 @@ bayora-veil/
 │   └── demo-script.md
 ├── .env.example
 ├── README.md
-└── LICENSE
 ```
 
 Keep the MVP small: combine services into fewer code packages initially if needed, but retain separate execution identities and network boundaries.
