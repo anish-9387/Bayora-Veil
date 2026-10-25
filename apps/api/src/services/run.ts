@@ -1,4 +1,6 @@
 import { query, getClient } from '../db/client.js';
+import { tenantId, isolated, principals } from '../security/context.js';
+import { callCell } from './cells.js';
 import { z } from 'zod';
 import {
   RunSchema,
@@ -21,7 +23,7 @@ import {
 } from '@bayora/schemas';
 import { buildAndSignManifest, appendAuditEvent } from './audit.js';
 import { hash, generateRequestId } from '@bayora/crypto-utils';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 
 const VALID_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
   CREATED: ['COMMITTED'],
@@ -50,16 +52,16 @@ export async function createRun(input: CreateRunInput): Promise<Run> {
   const now = new Date().toISOString();
 
   await query(
-    `INSERT INTO runs (id, status, policy_version, model_adapter, created_by, created_at, config)
-     VALUES ($1, 'CREATED', $2, $3, $4, $5, $6)`,
-    [runId, input.policyVersion, input.modelAdapter, input.createdBy, now, JSON.stringify(input.config || {})]
+    `INSERT INTO runs (id, status, policy_version, model_adapter, created_by, created_at, config, tenant_id)
+     VALUES ($1, 'CREATED', $2, $3, $4, $5, $6, $7)`,
+    [runId, input.policyVersion, input.modelAdapter, principals.getStore()?.userId || input.createdBy, now, JSON.stringify(input.config || {}), tenantId()]
   );
 
   await appendAuditEvent(runId, 'run_created', 'orchestrator', {
     runId,
     policyVersion: input.policyVersion,
     modelAdapter: input.modelAdapter,
-    createdBy: input.createdBy
+    createdBy: principals.getStore()?.userId || input.createdBy
   });
 
   const run = await getRun(runId);
@@ -68,22 +70,22 @@ export async function createRun(input: CreateRunInput): Promise<Run> {
 }
 
 export async function getRun(runId: string): Promise<Run | null> {
-  const result = await query('SELECT * FROM runs WHERE id = $1', [runId]);
+  const result = await query('SELECT * FROM runs WHERE id = $1 AND tenant_id = $2', [runId, tenantId()]);
   if (result.rows.length === 0) return null;
   return mapRunRow(result.rows[0]);
 }
 
 export async function listRuns(status?: RunStatus, limit = 50, offset = 0): Promise<Run[]> {
-  let sql = 'SELECT * FROM runs';
-  const params: any[] = [];
+  let sql = 'SELECT * FROM runs WHERE tenant_id = $1';
+  const params: any[] = [tenantId()];
 
   if (status) {
-    sql += ' WHERE status = $1';
+    sql += ' AND status = $2';
     params.push(status);
-    sql += ' ORDER BY created_at DESC LIMIT $2 OFFSET $3';
+    sql += ' ORDER BY created_at DESC LIMIT $3 OFFSET $4';
     params.push(limit, offset);
   } else {
-    sql += ' ORDER BY created_at DESC LIMIT $1 OFFSET $2';
+    sql += ' ORDER BY created_at DESC LIMIT $2 OFFSET $3';
     params.push(limit, offset);
   }
 
@@ -97,7 +99,7 @@ export async function transitionRun(runId: string, newStatus: RunStatus): Promis
 
   const allowed = VALID_TRANSITIONS[run.status] || [];
   if (!allowed.includes(newStatus)) {
-    throw new Error(`Invalid transition from ${run.status} to ${newStatus}`);
+    throw Object.assign(new Error(`Invalid transition from ${run.status} to ${newStatus}`), { status: 409 });
   }
 
   const now = new Date().toISOString();
@@ -119,20 +121,27 @@ export async function transitionRun(runId: string, newStatus: RunStatus): Promis
 
 export async function commitPayload(runId: string, payload: string): Promise<string> {
   const run = await getRun(runId);
-  if (!run || run.status !== 'CREATED') {
+  if (!run || !['CREATED', 'COMMITTED'].includes(run.status)) {
     throw new Error('Run must be in CREATED state to commit payload');
   }
 
-  const commitmentHash = hash(payload);
+  let commitmentHash = hash(payload);
+  const existing = await getPayloadCommitment(runId);
+  if (!isolated() && existing && existing.commitmentHash !== commitmentHash) throw Object.assign(new Error('Payload already committed'), { status: 409 });
+  if (isolated()) await appendAuditEvent(runId, 'run_created', 'orchestrator', { runId, policyVersion: run.policyVersion, modelAdapter: run.modelAdapter, createdBy: run.createdBy });
+  if (isolated()) {
+    const result = await callCell('red', '/commit', { runId, payload });
+    commitmentHash = z.string().regex(/^sha256:[0-9a-f]{64}$/).parse(result.commitmentHash);
+  }
 
-  await query(
+  if (!existing) await query(
     `INSERT INTO payload_commitments (run_id, commitment_hash, reveal_after_close)
      VALUES ($1, $2, true)`,
     [runId, commitmentHash]
   );
 
-  await storeRawPayload(runId, payload, `payload_${runId}`);
-  await transitionRun(runId, 'COMMITTED');
+  if (!isolated() && !existing) await storeRawPayload(runId, payload, `payload_${runId}`);
+  if (run.status === 'CREATED') await transitionRun(runId, 'COMMITTED');
   await appendAuditEvent(runId, 'payload_committed', 'red', { runId, commitmentHash });
 
   return commitmentHash;
@@ -259,6 +268,25 @@ export async function getEvidenceArtifacts(runId: string, accessClass?: string) 
 export async function startExecution(runId: string) {
   const run = await getRun(runId);
   if (run?.status !== 'COMMITTED') throw new Error('Commit the payload before execution');
+  if (isolated()) {
+    const commitment = await getPayloadCommitment(runId);
+    try {
+      await appendAuditEvent(runId, 'payload_committed', 'red', { runId, commitmentHash: commitment?.commitmentHash });
+      await appendAuditEvent(runId, 'execution_started', 'orchestrator', { runId });
+      const view = await callCell('red', '/execute', { runId, commitmentHash: commitment?.commitmentHash, modelAdapter: run.modelAdapter });
+      const allowed = z.object({ runId: z.literal(runId), caseId: z.literal('case-001'), outcome: z.literal('not_tested'), severity: z.literal('low'), category: z.literal('not_tested'), confidence: z.literal(0), evidenceDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict().parse(view);
+      const defense = z.object({ action: z.literal('flag'), ruleDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict().parse(await callCell('blue', '/defend', { runId, observation: allowed }));
+      await appendAuditEvent(runId, 'target_response', 'target', { digest: allowed.evidenceDigest });
+      await appendAuditEvent(runId, 'defense_applied', 'blue', { action: defense.action, ruleDigest: defense.ruleDigest });
+      await query(`INSERT INTO evidence_artifacts (run_id, artifact_type, storage_key, digest, access_class)
+        SELECT $1, 'response', $2, $3, 'target_private' WHERE NOT EXISTS (SELECT 1 FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'response')`, [runId, `red-cell:${runId}`, allowed.evidenceDigest]);
+      await transitionRun(runId, 'RUNNING');
+      return;
+    } catch (error) {
+      await query('UPDATE runs SET failure_count = failure_count + 1, timeout_count = timeout_count + $2 WHERE id = $1', [runId, Number((error as Error).name === 'TimeoutError')]);
+      throw error;
+    }
+  }
   const stored = await query("SELECT content FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'prompt' ORDER BY created_at DESC LIMIT 1", [runId]);
   const payload = stored.rows[0]?.content?.payload;
   if (typeof payload !== 'string') throw new Error('Payload unavailable; create a new run and commit again');
@@ -285,12 +313,26 @@ export async function startExecution(runId: string) {
 }
 
 export async function completeEvaluation(runId: string) {
-  await transitionRun(runId, 'EVALUATED');
-  await releaseObservation(runId, 'case-001', 'not_tested', 'low', 'not_tested', 0);
+  const run = await getRun(runId);
+  if (run?.status === 'RUNNING') await transitionRun(runId, 'EVALUATED');
+  else if (run?.status !== 'EVALUATED') throw new Error('Execute before evaluating');
+  const observations = await getObservations(runId);
+  if (!observations.length) await releaseObservation(runId, 'case-001', 'not_tested', 'low', 'not_tested', 0);
+  else if (isolated()) await appendAuditEvent(runId, 'observation_released', 'observation-firewall', { runId, caseId: 'case-001', outcome: observations[0].outcome, evidenceDigest: observations[0].evidenceDigest });
 }
 
 export async function closeRun(runId: string) {
-  await transitionRun(runId, 'CLOSED');
+  const run = await getRun(runId);
+  if (run && ['CLOSED', 'VERIFIED'].includes(run.status)) {
+    const { getManifest } = await import('./audit.js');
+    if (await getManifest(runId)) return;
+  }
+  if (!run || !['EVALUATED', 'CLOSED'].includes(run.status)) throw new Error('Evaluate before closing');
+  if (isolated()) {
+    await callCell('red', '/freeze', { runId });
+    await callCell('blue', '/freeze', { runId });
+  }
+  if (run.status === 'EVALUATED') await transitionRun(runId, 'CLOSED');
   await appendAuditEvent(runId, 'run_closed', 'orchestrator', { runId });
   await buildAndSignManifest(runId);
 }
@@ -298,9 +340,9 @@ export async function closeRun(runId: string) {
 export async function createLeakageExperiment(config: z.infer<typeof LeakageExperimentConfigSchema>) {
   const experimentId = uuidv4();
   await query(
-    `INSERT INTO experiments (id, type, config, status, started_at)
-     VALUES ($1, $2, $3, 'RUNNING', $4)`,
-    [experimentId, config.type, JSON.stringify(config.config), new Date().toISOString()]
+    `INSERT INTO experiments (id, type, config, status, started_at, tenant_id, run_id)
+     VALUES ($1, $2, $3, 'RUNNING', $4, $5, $6)`,
+    [experimentId, config.type, JSON.stringify(config.config), new Date().toISOString(), tenantId(), config.runId]
   );
   return experimentId;
 }

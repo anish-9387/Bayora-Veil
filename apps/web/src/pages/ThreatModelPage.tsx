@@ -9,12 +9,12 @@ export function ThreatModelPage() {
         description="Protected assets, trust boundaries, tested attack paths, and residual risks - honest assessment of what this prototype does and does not protect"
       />
 
-      <Card title="Local execution profile"><p className="text-sm">Service roles are selected by the operator and sent as headers. This demonstrates route policies, not authenticated tenant isolation. The API, database, signing-key directory, and Windows account are trusted. Do not expose these services publicly.</p></Card>
+      <Card title="Deployment profile"><p className="text-sm">Production uses server-issued sessions, tenant authorization, private Red/Blue/Target/Audit/Replay services and separate databases. Render provides private service ingress; services in one workspace and region still share its private network. Compose additionally separates allowed network pairs. Host administrators and the API gateway remain trusted.</p></Card>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Protected Assets">
           <div className="space-y-3">
-            <AssetRow icon={Lock} name="Red Team Payloads" description="Adversarial prompts, attack vectors, hidden labels" status="protected" detail="Role-restricted database record; shared API and database remain trusted" />
-            <AssetRow icon={Shield} name="Blue Team Defense Rules" description="Detection logic, mitigation policies, classification thresholds" status="protected" detail="Role-restricted rule record; no separate OS identity in local mode" />
+            <AssetRow icon={Lock} name="Red Team Payloads" description="Adversarial prompts, attack vectors, hidden labels" status="protected" detail="Red Cell private database; API stores the commitment digest only" />
+            <AssetRow icon={Shield} name="Blue Team Defense Rules" description="Detection logic, mitigation policies, classification thresholds" status="protected" detail="Blue Cell private database and service credential" />
             <AssetRow icon={Eye} name="Target Model Interactions" description="Raw prompts, responses, tool traces, internal state" status="protected" detail="Isolated in Target Cell; fresh session per run; no cross-run context" />
             <AssetRow icon={FileText} name="Raw Evidence" description="Complete execution traces, stack traces, timing data" status="protected" detail="Restricted evidence store; released only post-closure to auditor" />
             <AssetRow icon={RotateCcw} name="Audit Trail Integrity" description="Event sequence, hash chain, Merkle root, signatures" status="protected" detail="Append-only audit log; signed manifest; tamper-evident verification" />
@@ -23,9 +23,9 @@ export function ThreatModelPage() {
 
         <Card title="Trust Boundaries">
           <div className="space-y-3">
-            <BoundaryRow icon={Server} name="Control Plane" description="API, orchestrator, policy service" trust="Partial" detail="Trusted coordinator reads payloads to execute local tests" />
-            <BoundaryRow icon={Lock} name="Red Cell" description="Payload vault + runner" trust="High" detail="Local role check; no container or tenant boundary" />
-            <BoundaryRow icon={Shield} name="Blue Cell" description="Defense runner + rules" trust="High" detail="Local role check; no container or tenant boundary" />
+            <BoundaryRow icon={Server} name="Control Plane" description="API, orchestrator, policy service" trust="Partial" detail="Trusted account gateway; forwards Red submissions and auditor reveals, but cannot retrieve raw data under the orchestrator role" />
+            <BoundaryRow icon={Lock} name="Red Cell" description="Payload vault + runner" trust="High" detail="Separate private process, database and scoped credential" />
+            <BoundaryRow icon={Shield} name="Blue Cell" description="Defense runner + rules" trust="High" detail="Separate private process, database and scoped credential" />
             <BoundaryRow icon={Eye} name="Target Cell" description="Model adapter + context" trust="High" detail="Narrow API; no filesystem access to Red/Blue stores" />
             <BoundaryRow icon={FileText} name="Evidence Domain" description="Raw + sanitized streams" trust="High" detail="Firewall enforces allow-list; role-based access" />
             <BoundaryRow icon={RotateCcw} name="Audit Domain" description="Events + manifests" trust="High" detail="Append-only; separate signing key; read-only verification" />
@@ -36,12 +36,12 @@ export function ThreatModelPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card title="Tested Attack Paths (Mitigated in Prototype)">
           <div className="space-y-3">
-            <AttackRow icon={Unlock} name="Cross-Team API Access" description="Blue calling Red payload endpoints; Red calling Blue rule endpoints" mitigated="Role checks return 403; service headers are trusted in local mode" status="tested" />
+            <AttackRow icon={Unlock} name="Cross-Team API Access" description="Blue calling Red payload endpoints; Red calling Blue rule endpoints" mitigated="Server-derived role and tenant checks; client role headers are ignored in production" status="tested" />
             <AttackRow icon={EyeOff} name="Raw Evidence During Blind Run" description="Blue/Red querying raw evidence before run closure" mitigated="Firewall blocks raw_evidence access until CLOSED + auditor role" status="tested" />
             <AttackRow icon={Zap} name="Timing Side Channels" description="Inferring payload category from response latency" mitigated="100ms bucketing measured on synthetic timer tasks; other channels not tested" status="partial" />
             <AttackRow icon={Network} name="Cross-Run Context Reuse" description="Target model retaining conversation history across runs" mitigated="Stateless requests; model-side caches and OS isolation are not verified" status="partial" />
-            <AttackRow icon={Bug} name="Prompt Injection for Secrets" description="Target model prompted to reveal system instructions or payloads" mitigated="Mock model refuses; local model isolation; no secret access" status="tested" />
-            <AttackRow icon={Server} name="Resource Exhaustion" description="Long-running payloads consuming CPU/memory" mitigated="30-second target request timeout; no local CPU or memory quota" status="tested" />
+            <AttackRow icon={Bug} name="Prompt Injection for Secrets" description="Target model prompted to reveal system instructions or payloads" mitigated="Deterministic mock behavior is tested; real-model semantic safety is not established" status="partial" />
+            <AttackRow icon={Server} name="Resource Exhaustion" description="Long-running payloads consuming CPU/memory" mitigated="30-second target timeout, two target slots, tenant concurrency budgets; Compose adds CPU/memory quotas" status="tested" />
           </div>
         </Card>
 
@@ -51,9 +51,9 @@ export function ThreatModelPage() {
             <RiskRow icon={Zap} name="Hardware Side Channels" description="CPU cache, power, memory bus, speculative execution" status="not-solved" detail="Requires confidential computing / remote attestation (stretch)" />
             <RiskRow icon={Bug} name="Semantic Leakage" description="Model outputs implicitly revealing hidden information" status="partial" detail="Firewall reduces but cannot eliminate all semantic channels" />
             <RiskRow icon={User} name="Malicious Administrator" description="Host admin with signing key access" status="not-solved" detail="Key compromise breaks manifest trust; no hardware root of trust" />
-            <RiskRow icon={Key} name="Cryptographic Key Compromise" description="Ed25519 signing key theft" status="not-solved" detail="Local demo key only; production needs HSM/KMS" />
+            <RiskRow icon={Key} name="Cryptographic Key Compromise" description="Ed25519 signing key theft" status="not-solved" detail="Audit-only persistent secret; host administrators remain trusted, HSM/KMS integration is outside this deployment" />
             <RiskRow icon={AlertTriangle} name="Formal Noninterference Proof" description="Mathematical proof of no information flow" status="not-solved" detail="Prototype demonstrates composition; not a formal verification" />
-            <RiskRow icon={Bug} name="All LLM Safety Labels Correct" description="Ground truth for every attack category" status="not-solved" detail="Uses synthetic labels; real benchmarks have label noise" />
+            <RiskRow icon={Bug} name="All LLM Safety Labels Correct" description="Ground truth for every attack category" status="not-solved" detail="Safety outcome remains not_tested; the mock refusal is not a safety verdict" />
             <RiskRow icon={Network} name="External Model Provider" description="Ollama/API provider sees all prompts/responses" status="not-solved" detail="Outside local isolation boundary; disclosed in architecture" />
           </div>
         </Card>
@@ -65,10 +65,10 @@ export function ThreatModelPage() {
             <h4 className="font-medium text-amber-700 flex items-center gap-2"><AlertTriangle className="w-5 h-5" /> Assumptions</h4>
             <ul className="list-disc list-inside space-y-2 text-sm text-bayora-text-muted">
               <li>Docker containers provide process-level isolation (not hardware)</li>
-              <li>Network policies enforced by Docker Compose (not production CNI)</li>
-              <li>Signing key stored in memory (not HSM) for demo</li>
+              <li>Render shares private networking; strict per-pair networks are available in the Compose deployment</li>
+              <li>Signing key loaded from an audit-only secret file; public roots must be preserved externally</li>
               <li>Mock model behaves deterministically (no real LLM unpredictability)</li>
-              <li>Synthetic test cases represent attack distribution</li>
+              <li>Synthetic tests measure their selected channels; general attack distributions are not inferred</li>
               <li>No insider threat from orchestration service</li>
               <li>Time synchronization across services for audit ordering</li>
             </ul>
@@ -82,7 +82,7 @@ export function ThreatModelPage() {
               <li>Signing key compromise allows manifest forgery</li>
               <li>External model providers see all interactions</li>
               <li>Label quality in synthetic experiments may not match real attacks</li>
-              <li>No protection against denial-of-service on orchestrator</li>
+              <li>Rate limits and concurrency budgets reduce resource abuse; volumetric DDoS needs platform protection</li>
             </ul>
           </div>
         </div>
@@ -93,7 +93,7 @@ export function ThreatModelPage() {
           <ControlBadge icon={Lock} name="Isolation by Default" status="implemented" detail="Separate containers, networks, credentials" />
           <ControlBadge icon={Shield} name="Capability-Based Auth" status="implemented" detail="Scoped permissions per service role" />
           <ControlBadge icon={Eye} name="Observation Firewall" status="implemented" detail="Allow-list schema; no raw prompts/secrets" />
-          <ControlBadge icon={Zap} name="Timing Bucketing" status="implemented" detail="100ms buckets + noise; fixed envelopes" />
+          <ControlBadge icon={Zap} name="Timing Bucketing" status="implemented" detail="100ms timing buckets; fixed allow-listed observation fields" />
           <ControlBadge icon={RotateCcw} name="Hash Chain + Merkle" status="implemented" detail="SHA-256 chain; Merkle root per run" />
           <ControlBadge icon={Key} name="Ed25519 Signatures" status="implemented" detail="Manifest signing; external key preservation" />
           <ControlBadge icon={RefreshCw} name="Deterministic Replay" status="implemented" detail="Replay worker verifies evidence digests" />

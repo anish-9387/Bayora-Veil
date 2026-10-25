@@ -1,4 +1,9 @@
+import { verifyEventCopy } from './verification.js';
+export { verifyEventCopy } from './verification.js';
 import { query, getClient } from '../db/client.js';
+import { isolated } from '../security/context.js';
+import { callCell } from './cells.js';
+const remoteAudit = () => isolated() && process.env.CELL_KIND !== 'audit';
 import { z } from 'zod';
 import {
   AuditEventSchema,
@@ -22,6 +27,7 @@ const GENESIS_HASH = 'sha256:' + '0'.repeat(64);
 const SIGNING_KEY_ID = 'bayora-eval-key-001';
 
 interface AuditEventRow {
+  canonical_payload?: string | null;
   id: string;
   run_id: string;
   sequence: number;
@@ -35,6 +41,8 @@ interface AuditEventRow {
 }
 
 interface ManifestRow {
+  dataset_version?: string | null;
+  model_version?: string | null;
   run_id: string;
   merkle_root: string;
   final_chain_hash: string;
@@ -52,6 +60,7 @@ export async function appendAuditEvent(
   actor: ActorRole,
   payload: Record<string, unknown>
 ): Promise<string> {
+  if (remoteAudit()) return callCell('audit', '/append', { runId, eventType, actor, payload }, 'orchestrator');
   const client = await getClient();
   try {
     await client.query('BEGIN');
@@ -89,9 +98,9 @@ export async function appendAuditEvent(
     eventData.event_hash = eventHash;
 
     await client.query(
-      `INSERT INTO audit_events (run_id, sequence, event_type, timestamp, actor, payload_digest, previous_event_hash, event_hash, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [runId, sequence, eventType, eventData.timestamp, actor, payloadDigest, previousEventHash, eventHash, eventData.created_at]
+      `INSERT INTO audit_events (run_id, sequence, event_type, timestamp, actor, payload_digest, previous_event_hash, event_hash, created_at, canonical_payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [runId, sequence, eventType, eventData.timestamp, actor, payloadDigest, previousEventHash, eventHash, eventData.created_at, canonicalPayload]
     );
 
     await client.query('COMMIT');
@@ -105,11 +114,13 @@ export async function appendAuditEvent(
 }
 
 export async function getAuditEvents(runId: string): Promise<z.infer<typeof AuditEventSchema>[]> {
+  if (remoteAudit()) return callCell('audit', '/events', { runId });
   const result = await query(
     'SELECT * FROM audit_events WHERE run_id = $1 ORDER BY sequence ASC',
     [runId]
   );
   return result.rows.map((row: AuditEventRow) => ({
+    canonicalPayload: row.canonical_payload || undefined,
     id: row.id,
     runId: row.run_id,
     sequence: Number(row.sequence),
@@ -127,75 +138,8 @@ export async function verifyHashChain(runId: string): Promise<z.infer<typeof Ver
   return verifyEventCopy(runId, await getAuditEvents(runId));
 }
 
-export function verifyEventCopy(runId: string, events: Awaited<ReturnType<typeof getAuditEvents>>) {
-  const checks: Array<{ name: string; passed: boolean; detail?: string }> = [];
-  const tamperedEvents: Array<{ sequence: number; expectedHash: string; actualHash: string }> = [];
-
-  let previousHash = GENESIS_HASH;
-  let allValid = true;
-
-  for (const event of events) {
-    const eventData = {
-      run_id: event.runId,
-      sequence: event.sequence,
-      event_type: event.eventType,
-      timestamp: event.timestamp,
-      actor: event.actor,
-      payload_digest: event.payloadDigest,
-      previous_event_hash: event.previousEventHash,
-      event_hash: '',
-      created_at: event.createdAt
-    };
-
-    const canonicalEvent = canonicalizeEvent(eventData);
-    const expectedHash = hash(canonicalEvent + previousHash);
-
-    const hashMatches = expectedHash === event.eventHash;
-    const chainMatches = event.previousEventHash === previousHash;
-
-    checks.push({
-      name: `Event ${event.sequence} hash`,
-      passed: hashMatches,
-      detail: hashMatches ? undefined : `Expected ${expectedHash}, got ${event.eventHash}`
-    });
-
-    checks.push({
-      name: `Event ${event.sequence} chain`,
-      passed: chainMatches,
-      detail: chainMatches ? undefined : `Expected previous ${previousHash}, got ${event.previousEventHash}`
-    });
-
-    if (!hashMatches || !chainMatches) {
-      allValid = false;
-      tamperedEvents.push({
-        sequence: event.sequence,
-        expectedHash,
-        actualHash: event.eventHash
-      });
-    }
-
-    previousHash = event.eventHash;
-  }
-
-  checks.push({
-    name: 'Sequence continuity',
-    passed: events.every((e, i) => e.sequence === i + 1),
-    detail: events.some((e, i) => e.sequence !== i + 1) ? 'Sequence gap detected' : undefined
-  });
-
-  if (events.some((e, i) => e.sequence !== i + 1)) {
-    allValid = false;
-  }
-
-  return {
-    valid: allValid,
-    runId,
-    checks,
-    tamperedEvents: tamperedEvents.length > 0 ? tamperedEvents : undefined
-  };
-}
-
 export async function buildAndSignManifest(runId: string): Promise<z.infer<typeof RunManifestSchema>> {
+  if (remoteAudit()) return callCell('audit', '/seal', { runId });
   const events = await getAuditEvents(runId);
   const runResult = await query('SELECT * FROM runs WHERE id = $1', [runId]);
   const run = runResult.rows[0];
@@ -215,6 +159,8 @@ export async function buildAndSignManifest(runId: string): Promise<z.infer<typeo
 
   const manifestData = {
     run_id: runId,
+    dataset_version: 'synthetic-v1',
+    model_version: run.model_adapter + '@bayora-target-1',
     merkle_root: merkleRoot,
     final_chain_hash: finalChainHash,
     signature: '',
@@ -231,22 +177,15 @@ export async function buildAndSignManifest(runId: string): Promise<z.infer<typeo
   manifestData.signature = signature;
 
   await query(
-    `INSERT INTO run_manifests (run_id, merkle_root, final_chain_hash, signature, public_key_id, event_count, policy_version, model_adapter, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     ON CONFLICT (run_id) DO UPDATE SET
-       merkle_root = EXCLUDED.merkle_root,
-       final_chain_hash = EXCLUDED.final_chain_hash,
-       signature = EXCLUDED.signature,
-       public_key_id = EXCLUDED.public_key_id,
-       event_count = EXCLUDED.event_count,
-       policy_version = EXCLUDED.policy_version,
-       model_adapter = EXCLUDED.model_adapter,
-       created_at = EXCLUDED.created_at`,
-    [runId, merkleRoot, finalChainHash, signature, SIGNING_KEY_ID, events.length, run.policy_version, run.model_adapter, manifestData.created_at]
+    `INSERT INTO run_manifests (run_id, merkle_root, final_chain_hash, signature, public_key_id, event_count, policy_version, model_adapter, created_at, dataset_version, model_version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [runId, merkleRoot, finalChainHash, signature, SIGNING_KEY_ID, events.length, run.policy_version, run.model_adapter, manifestData.created_at, manifestData.dataset_version, manifestData.model_version]
   );
 
   return {
     runId: manifestData.run_id,
+    datasetVersion: manifestData.dataset_version,
+    modelVersion: manifestData.model_version,
     merkleRoot: manifestData.merkle_root,
     finalChainHash: manifestData.final_chain_hash,
     signature: manifestData.signature,
@@ -259,6 +198,11 @@ export async function buildAndSignManifest(runId: string): Promise<z.infer<typeo
 }
 
 export async function verifyManifest(runId: string): Promise<z.infer<typeof VerifyResultSchema>> {
+  if (remoteAudit()) {
+    const result = await callCell('audit', '/verify', { runId });
+    if (result.valid) await query("UPDATE runs SET status = 'VERIFIED' WHERE id = $1 AND status = 'CLOSED'", [runId]);
+    return result;
+  }
   const manifestResult = await query('SELECT * FROM run_manifests WHERE run_id = $1', [runId]);
   const manifestRow = manifestResult.rows[0] as ManifestRow | undefined;
 
@@ -282,6 +226,8 @@ export async function verifyManifest(runId: string): Promise<z.infer<typeof Veri
   const { publicKey } = getSigningKey();
   const manifestData = {
     run_id: manifestRow.run_id,
+    ...(manifestRow.dataset_version ? { dataset_version: manifestRow.dataset_version } : {}),
+    ...(manifestRow.model_version ? { model_version: manifestRow.model_version } : {}),
     merkle_root: manifestRow.merkle_root,
     final_chain_hash: manifestRow.final_chain_hash,
     signature: '',
@@ -314,16 +260,19 @@ export async function verifyManifest(runId: string): Promise<z.infer<typeof Veri
 }
 
 export async function getManifest(runId: string) {
+  if (remoteAudit()) return callCell('audit', '/manifest', { runId });
   const result = await query('SELECT * FROM run_manifests WHERE run_id = $1', [runId]);
   if (result.rows.length === 0) return null;
   const row = result.rows[0] as ManifestRow;
   return {
     runId: row.run_id,
+    datasetVersion: row.dataset_version || undefined,
+    modelVersion: row.model_version || undefined,
     merkleRoot: row.merkle_root,
     finalChainHash: row.final_chain_hash,
     signature: row.signature,
     publicKeyId: row.public_key_id,
-    eventCount: row.event_count,
+    eventCount: Number(row.event_count),
     policyVersion: row.policy_version,
     modelAdapter: row.model_adapter,
     createdAt: row.created_at
@@ -331,6 +280,7 @@ export async function getManifest(runId: string) {
 }
 
 export async function getSigningPublicKey(): Promise<string> {
+  if (remoteAudit()) return callCell('audit', '/public-key', { runId: '00000000-0000-4000-8000-000000000000' });
   const { publicKey } = getSigningKey();
   return publicKey;
 }

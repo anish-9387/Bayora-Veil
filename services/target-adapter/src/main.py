@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, Literal
@@ -7,10 +7,25 @@ import time
 import uuid
 import os
 import asyncio
+import secrets
 
 logger = structlog.get_logger()
 
-app = FastAPI(title="Bayora Target Adapter", version="0.1.0")
+PRODUCTION = os.getenv('NODE_ENV') == 'production'
+if PRODUCTION and (len(os.getenv('TARGET_TOKEN', '')) < 32 or len(os.getenv('TARGET_REPLAY_TOKEN', '')) < 32):
+    raise RuntimeError('Separate Red and replay credentials are required')
+app = FastAPI(title="Bayora Target Adapter", version="0.1.0", docs_url=None if PRODUCTION else '/docs', redoc_url=None if PRODUCTION else '/redoc', openapi_url=None if PRODUCTION else '/openapi.json')
+slots = asyncio.Semaphore(2)
+
+@app.middleware('http')
+async def authenticate(request: Request, call_next):
+    if request.url.path == '/health':
+        return await call_next(request)
+    if PRODUCTION:
+        supplied = request.headers.get('authorization', '').removeprefix('Bearer ')
+        if not any(secrets.compare_digest(supplied, os.environ[key]) for key in ['TARGET_TOKEN', 'TARGET_REPLAY_TOKEN']):
+            return Response(status_code=401)
+    return await call_next(request)
 
 @app.get("/", include_in_schema=False)
 async def root():
@@ -21,12 +36,12 @@ async def favicon():
     return Response(status_code=204)
 
 class TargetRequest(BaseModel):
-    run_id: str
-    case_id: str
+    model_config = {"extra": "forbid"}
+    run_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    case_id: str = Field(pattern=r"^case-[0-9]+$", max_length=100)
     model_adapter: Literal["mock-adapter", "ollama-llama3.2"] = "mock-adapter"
     prompt: str = Field(min_length=1, max_length=100000)
-    context: Optional[Dict[str, Any]] = None
-    timeout_ms: int = Field(default=30000, gt=0)
+    timeout_ms: int = Field(default=30000, gt=0, le=30000)
 
 class TargetResponse(BaseModel):
     run_id: str
@@ -66,13 +81,17 @@ async def call_ollama(prompt: str) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "keep_alive": 0, "options": {"num_predict": 512}}
         )
         response.raise_for_status()
         return response.json().get("response", "")
 
 @app.post("/execute", response_model=TargetResponse)
 async def execute(request: TargetRequest):
+    try:
+        await asyncio.wait_for(slots.acquire(), timeout=0.1)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=429, detail='Target capacity exceeded')
     start_time = time.perf_counter()
     logger.info("execute_request", run_id=request.run_id, case_id=request.case_id)
 
@@ -86,6 +105,8 @@ async def execute(request: TargetRequest):
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         tokens_used = len(response_text) // 4
 
+        if len(response_text) > 100000:
+            raise RuntimeError('Response exceeds budget')
         return TargetResponse(
             run_id=request.run_id,
             case_id=request.case_id,
@@ -95,8 +116,10 @@ async def execute(request: TargetRequest):
             metadata={"mock": request.model_adapter == "mock-adapter", "model": request.model_adapter}
         )
     except Exception as e:
-        logger.error("execute_failed", error=str(e), run_id=request.run_id)
-        raise HTTPException(status_code=500, detail=f"Model execution failed: {str(e)}")
+        logger.error("execute_failed", error=type(e).__name__, run_id=request.run_id)
+        raise HTTPException(status_code=504 if isinstance(e, asyncio.TimeoutError) else 502, detail='Model execution failed')
+    finally:
+        slots.release()
 
 @app.get("/health", response_model=HealthResponse)
 async def health():

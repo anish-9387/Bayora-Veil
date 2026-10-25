@@ -2,6 +2,7 @@ import { ReactNode, useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Shield, Activity, Search, FileText, AlertTriangle, Menu, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import clsx from 'clsx';
+import { API_BASE } from '../api/client';
 
 const navigation = [
   { path: '/', label: 'Overview', icon: Activity },
@@ -16,7 +17,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const mobileMenu = useRef<HTMLDialogElement>(null);
   useEffect(() => { mobileMenu.current?.close(); }, [location.pathname]);
-  const links = navigation.map(item => {
+  const links = navigation.filter(item => !['/leakage', '/forensics'].includes(item.path) || ['auditor', 'orchestrator'].includes(sessionStorage.getItem('bayora-role') || 'orchestrator')).map(item => {
     const Icon = item.icon;
     const active = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path + '/'));
     return <NavLink key={item.path} to={item.path} end={item.path === '/'} title={item.label} className={clsx('nav-item', active && 'nav-active')}><Icon className="w-[18px] h-[18px] shrink-0" /><span>{item.label}</span></NavLink>;
@@ -43,9 +44,9 @@ export function Layout({ children }: { children: ReactNode }) {
         <header className="workspace-bar">
           <button className="mobile-menu-button" aria-label="Open navigation" aria-haspopup="dialog" onClick={() => mobileMenu.current?.showModal()}><Menu size={22} /></button>
           <span className="text-sm text-bayora-text-muted">Workspace <span className="mx-3 opacity-40">/</span> <span className="text-bayora-text font-medium">{navigation.find(item => item.path === location.pathname || (item.path !== '/' && location.pathname.startsWith(item.path + '/')))?.label || 'Evaluation'}</span></span>
-          <select aria-label="Workspace role" className="role-select" defaultValue={typeof sessionStorage === 'undefined' ? 'orchestrator' : sessionStorage.getItem('bayora-role') || 'orchestrator'} onChange={event => { sessionStorage.setItem('bayora-role', event.target.value); window.location.reload(); }}>
+          {sessionStorage.getItem('bayora-demo') === 'true' ? <select aria-label="Workspace role" className="role-select" defaultValue={typeof sessionStorage === 'undefined' ? 'orchestrator' : sessionStorage.getItem('bayora-role') || 'orchestrator'} onChange={event => { sessionStorage.setItem('bayora-role', event.target.value); window.location.reload(); }}>
             <option value="orchestrator">Orchestrator</option><option value="red">Red team</option><option value="blue">Blue team</option><option value="auditor">Auditor</option>
-          </select>
+          </select> : <div className="flex items-center gap-3 text-sm"><span>{sessionStorage.getItem('bayora-role')}</span><button onClick={async () => { await fetch(`${API_BASE}/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${sessionStorage.getItem('bayora-token')}` } }).catch(() => {}); sessionStorage.clear(); window.location.reload(); }}>Sign out</button></div>}
         </header>
         <div className="page-content" key={location.pathname}>{children}</div>
       </main>

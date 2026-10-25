@@ -75,7 +75,7 @@ export function useObservations(runId: string) {
   return useQuery<ApiResponse<Observation[]>>({
     queryKey: ['observations', runId],
     queryFn: () => api.runs.observations(runId),
-    enabled: !!runId
+    enabled: !!runId && sessionStorage.getItem('bayora-role') !== 'red'
   });
 }
 
@@ -90,19 +90,19 @@ export function useReleaseObservation() {
   });
 }
 
-export function useEvidence(runId: string) {
+export function useEvidence(runId: string, status?: string) {
   return useQuery<ApiResponse<EvidenceArtifact[]>>({
     queryKey: ['evidence', runId],
     queryFn: () => api.runs.evidence(runId),
-    enabled: !!runId
+    enabled: !!runId && sessionStorage.getItem('bayora-role') === 'auditor' && ['CLOSED', 'VERIFIED'].includes(status || '')
   });
 }
 
-export function useManifest(runId: string) {
+export function useManifest(runId: string, status?: string) {
   return useQuery<ApiResponse<RunManifest>>({
     queryKey: ['manifest', runId],
     queryFn: () => api.runs.manifest(runId),
-    enabled: !!runId
+    enabled: !!runId && ['orchestrator', 'auditor'].includes(sessionStorage.getItem('bayora-role') || '') && ['CLOSED', 'VERIFIED'].includes(status || '')
   });
 }
 

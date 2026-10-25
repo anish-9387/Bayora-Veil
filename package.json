@@ -3,15 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm db:migrate && concurrently --kill-others --names api,web \"pnpm --filter=@bayora/api dev\" \"pnpm --filter=@bayora/web dev\"",
+    "dev": "pnpm db:migrate && concurrently --kill-others --names api,web,adapter \"pnpm --filter=@bayora/api dev\" \"pnpm --filter=@bayora/web dev\" \"pnpm dev:adapter\"",
+    "dev:adapter": "node scripts/dev-adapter.mjs",
     "build": "pnpm -r build",
     "test": "pnpm --filter=@bayora/api exec vitest run --root ../.. --config vitest.config.ts",
     "lint": "pnpm -r lint",
     "db:migrate": "pnpm --filter=@bayora/api db:migrate",
     "db:seed": "pnpm --filter=@bayora/api db:seed",
-    "docker:up": "docker-compose -f infra/docker-compose.yml up --build",
-    "docker:down": "docker-compose -f infra/docker-compose.yml down",
-    "demo:check": "node scripts/demo-check.mjs"
+    "docker:up": "docker compose --env-file .bayora/deployment.env -f infra/compose.production.yml up --build -d",
+    "docker:down": "docker compose --env-file .bayora/deployment.env -f infra/compose.production.yml down",
+    "demo:check": "node scripts/demo-check.mjs",
+    "account:create": "pnpm --filter=@bayora/api exec tsx src/security/provision.ts",
+    "production:check": "node scripts/production-check.mjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

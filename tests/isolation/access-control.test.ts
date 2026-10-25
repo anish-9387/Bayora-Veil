@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { requireAuth, requireCapability, requireRole } from '../../apps/api/src/middleware/auth.js';
+import { requestIdMiddleware, requireAuth, requireCapability, requireRole } from '../../apps/api/src/middleware/auth.js';
 import { CapabilitySchema, ActorRole } from '@bayora/schemas';
+vi.mock('../../apps/api/src/db/client.js', () => ({ query: vi.fn().mockResolvedValue({ rows: [], rowCount: 1 }) }));
 
 describe('Isolation & Authorization', () => {
   let app: express.Express;
@@ -11,15 +12,8 @@ describe('Isolation & Authorization', () => {
     app = express();
     app.use(express.json());
 
-    app.use((req, res, next) => {
-      const serviceId = req.headers['x-service-id'] as string;
-      const role = req.headers['x-service-role'] as ActorRole;
-      if (serviceId && role) {
-        (req as any).identity = { serviceId, role, capabilities: [] };
-        (req as any).capabilities = [];
-      }
-      next();
-    });
+    app.use(requestIdMiddleware);
+    app.use(requireAuth);
 
     app.get('/red-only', requireRole('red'), (req, res) => res.json({ ok: true }));
     app.get('/blue-only', requireRole('blue'), (req, res) => res.json({ ok: true }));

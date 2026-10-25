@@ -1,189 +1,66 @@
-# BAYORA VEIL - Verifiable Evaluation Isolation Layer
+# BAYORA VEIL
 
-A prototype for **blind, isolated, measurable, and verifiable AI safety evaluations** built for Hack in Hills '26 Problem Statement 04.
+A blind evaluation protocol with restricted team data, allow-listed observations, measured leakage experiments, signed evidence and fresh-session replay.
 
-## Architecture Overview
+## Production: Render backend, Vercel frontend
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Red Cell  │     │ Target Cell │     │  Blue Cell  │     │   Audit     │
-│  (Payloads) │────▶│  (Model)    │────▶│ (Defenses)  │     │  (Evidence) │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │                   │
-       └───────────────────┴───────────────────┴───────────────────┘
-                                   │
-                          ┌────────▼────────┐
-                          │ Observation     │
-                          │ Firewall        │
-                          │ (Allow-list)    │
-                          └────────┬────────┘
-                                   │
-                          ┌────────▼────────┐
-                          │   Dashboard     │
-                          │  (Sanitized)    │
-                          └─────────────────┘
-```
+Follow [the production deployment guide](docs/production-deployment.md). It covers setup, account provisioning, secrets, verification, demonstration and operational requirements.
 
-## Key Features
+- `render.yaml`: one public API, five private services, five independent PostgreSQL databases.
+- `vercel.json`: frontend build, SPA routing and security headers. Set `VITE_API_URL` to the public API's `/api/v1` URL.
+- Production accepts server-issued sessions. Users have an administrator-assigned tenant and role; client role headers are ignored.
+- Red retains raw prompts and target responses. Blue retains its rules. The API retains digest metadata. Audit alone receives the signing key.
+- Auditor evidence access requires closure. Ordinary database updates cannot rewrite audit records, manifests or closed artifacts.
+- Two tenant work leases, shared rate limits, bounded target concurrency and request timeouts limit resource use.
 
-- **Isolation by Default**: Separate containers, networks, and credentials for Red, Blue, and Target cells
-- **Observation Firewall**: Allow-list schema releases only sanitized observations (no raw prompts, secrets, or stack traces)
-- **Blind Evaluation Protocol**: Cryptographic commitments, phased execution, post-closure revelation
-- **Tamper-Evident Audit**: SHA-256 hash chain, Merkle roots, Ed25519 signed manifests
-- **Leakage Measurement**: Controlled experiments measuring blind classification accuracy and timing side channels
-- **Deterministic Replay**: Verification worker replays runs and compares evidence digests
+Render private services share their workspace/region network. They enforce scoped application credentials, but do not provide this project's strict per-pair network filtering. [The Compose production profile](infra/compose.production.yml) provides explicit allowed networks, independent volumes, read-only non-root applications and CPU/memory/PID limits on a compatible host. See [the PLAN review](docs/plan-review.md) for verification boundaries and stretch goals.
 
-## Quick Start
+## Install and verify
 
-### Prerequisites
-- Docker & Docker Compose
-- Node.js 20.12+ (for local development)
-- Python 3.11+ (for target adapter)
+Use Node 22, pnpm 9, Python 3.12 and PostgreSQL 16 or newer.
 
-### Using Docker Compose (Recommended)
-
-```bash
-cd bayora-veil
-cp .env.example .env
-docker-compose -f infra/docker-compose.yml up --build
+```sh
+pnpm install --frozen-lockfile
+pnpm -r build
+pnpm test
+python -m venv services/target-adapter/venv
 ```
 
-Services will be available at:
-- **Dashboard**: http://localhost:5173
-- **API**: http://localhost:3001
-- **Target Adapter**: http://localhost:8000
-- **Red Runner**: http://localhost:3002
-- **Blue Runner**: http://localhost:3003
-- **Observation Firewall**: http://localhost:3004
-- **Audit Service**: http://localhost:3005
-- **Replay Worker**: http://localhost:3006
+Install the target using that environment's pip (`venv/Scripts/pip.exe` on Windows; `venv/bin/pip` on Linux/macOS):
 
-### Local Development
+```sh
+pip install ./services/target-adapter
+```
 
-Copy `.env.example` to `.env` in the repository root and set `DB_HOST`, `DB_PORT`,
-`DB_NAME`, `DB_USER`, and `DB_PASSWORD` for your PostgreSQL instance. Create the
-database first. The API, migration, and seed commands load this file automatically;
-existing shell environment variables take precedence. Both database commands create
-all nine tables before inserting seed data.
+Use the environment's Python when running its tests. `pnpm production:check` runs the complete isolated topology against dedicated `bayora_check_*` PostgreSQL databases. It requires a disposable database administrator connection, creates synthetic accounts/runs/experiments and retains them. It verifies authentication, role spoof rejection, tenant denial, private service credentials, hidden payloads, closure, immutable writes, signatures, copied-event tampering, replay, measurements and logout. Processes stop afterward.
 
-```bash
-# Install dependencies
-npm install
+CI builds the workspace, runs tests and the isolated smoke check, validates Compose configuration and builds both container images.
 
-# Start database
-docker-compose -f infra/docker-compose.yml up -d postgres redis
+## Optional local role demo
 
-# Run migrations
-npm run db:migrate
+Copy `.env.example` to `.env` only for a fresh setup; keep existing credentials otherwise. Create the database named in `.env`. Set `AUTH_MODE=demo` and `EXECUTION_PROFILE=local` explicitly for this testing profile. Migration, seeding and the API load the root environment file automatically. All tables are created before demo seed data.
 
-# Seed demo data
-npm run db:seed
-
-# Start the API and dashboard together (also runs migrations)
+```sh
+pnpm db:migrate
 pnpm dev
 ```
 
-After initial setup, run **`pnpm dev`** from the repository root. Keep your
-PostgreSQL server running with the credentials in `.env`. Open
-http://localhost:5173 for the dashboard; the API runs at http://localhost:3001.
-Press Ctrl+C to stop both servers. If migration fails, neither server starts.
-Demo seeding remains a separate, optional `pnpm db:seed` command.
-This local command starts the API and dashboard; the separate services listed
-under Docker Compose are not started by it.
+After installing the Python virtual environment, `pnpm dev` migrates PostgreSQL and starts API :3001, dashboard :5173 and adapter :8000. Redis is not required. Press Ctrl+C to stop the processes. This local profile deliberately permits role switching and is refused in production. [Local instructions](docs/run-and-demo.md).
 
-## Demo Script
+## Demonstrate
 
-1. **Create a run** - Select policy version and model adapter
-2. **Commit payload** - Red Team stores adversarial prompt, publishes only SHA-256 commitment
-3. **Execute** - Target model processes prompt in isolated cell
-4. **Defend** - Blue Team applies defenses to sanitized observation only
-5. **Observe** - Firewall releases only allow-listed telemetry (outcome, severity, digest)
-6. **Close** - Freeze run, enable auditor access to raw evidence
-7. **Verify** - Check hash chain, Merkle root, and Ed25519 signature
-8. **Tamper demo** - Modify event copy, show verification failure
-9. **Leakage lab** - Run experiments with firewall ON/OFF, compare measured inference accuracy
+1. Orchestrator creates a run using `v1.0.0` and `mock-adapter`.
+2. Red commits a harmless synthetic payload. Show its SHA-256 commitment.
+3. Demonstrate Blue-to-Red, Red-to-Blue and foreign-tenant denials.
+4. Orchestrator executes, evaluates and closes. Only the constrained observation reaches Blue; unknown safety outcomes stay `not_tested`.
+5. Auditor inspects evidence and verifies chain continuity, Merkle root, event count and Ed25519 signature.
+6. Forensics changes a copied event to demonstrate failure and re-executes the case in a fresh target session to compare response digests.
+7. Leakage Lab measures classification, timing and authenticated access attempts, with sample counts, methods and saved history.
 
-## Project Structure
+## Architecture and limits
 
-```
-bayora-veil/
-├── apps/
-│   ├── api/           # Express + TypeScript control plane
-│   └── web/           # Vite + React + TypeScript dashboard
-├── services/
-│   ├── target-adapter/      # Python FastAPI model adapter
-│   ├── red-runner/          # Red Team payload vault
-│   ├── blue-runner/         # Blue Team defense runner
-│   ├── observation-firewall/# Allow-list schema enforcement
-│   ├── audit-service/       # Hash chain, Merkle, signatures
-│   └── replay-worker/       # Deterministic replay verification
-├── packages/
-│   ├── schemas/       # Shared Zod schemas (API, events, types)
-│   └── crypto-utils/  # Hash, signatures, Merkle, canonicalization
-├── tests/             # Isolation, authorization, leakage, audit, replay
-├── infra/             # Docker Compose, network policies
-└── docs/              # Threat model, architecture, demo script
-```
+The authenticated API coordinates Red, Target, Blue, Audit and Replay through narrow schemas. Separate service credentials and databases prevent ordinary cross-cell access. Raw submissions and authorized reveals transit the trusted API gateway's memory; its database stores only digest metadata in isolated mode. The target has no team database credentials, mounted stores, shell tools or shared conversation IDs.
 
-## Security Model
+Audit records hash only metadata, build a Merkle root and sign a manifest containing policy, adapter and dataset versions. Preserve signed manifests and public keys externally. A host/database administrator with DDL privileges or signing-key access remains trusted. Synthetic leakage results do not establish universal security or real-model safety.
 
-### Protected In Prototype
-- Cross-team API access (default-deny networking + capability auth)
-- Raw evidence access during blind runs (firewall enforcement)
-- Cross-run context contamination (fresh sessions per case)
-- Audit trail modification (hash chain + Merkle + signatures)
-- Basic resource exhaustion (timeouts, limits)
-
-### Not Fully Solved
-- Host/kernel/hypervisor compromise
-- Hardware side channels (cache, power, speculative execution)
-- All semantic leakage through model outputs
-- Malicious administrator with signing key
-- Cryptographic key compromise
-- External model provider visibility
-
-## Leakage Experiments
-
-Run controlled measurements (not claims):
-
-| Experiment | Metric | Method |
-|------------|--------|--------|
-| Blind Classification | Balanced accuracy vs chance | Logistic regression on sanitized vs raw telemetry |
-| Timing Leakage | Classifier accuracy before/after bucketing | Decision tree on latency distributions |
-| Cross-Tenant Access | Denial rate + audit coverage | Automated unauthorized request attempts |
-
-Results show **measured prototype metrics** with sample counts and methodology - no invented percentages.
-
-## Testing
-
-```bash
-# Run all tests
-npm run test
-
-# Specific test suites
-npm run test --workspace=apps/api
-npm run test --workspace=packages/schemas
-npm run test --workspace=packages/crypto-utils
-```
-
-## Configuration
-
-Key environment variables (see `.env.example`):
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `MOCK_MODEL` | Use deterministic mock instead of Ollama | `true` |
-| `DB_HOST` | PostgreSQL host | `localhost` |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
-
-## License
-
-MIT - See [LICENSE](LICENSE) for details.
-
-## References
-
-- Hack in Hills '26 PS-04 Problem Statement
-- AdvBench, JailbreakBench, HarmBench, ToxiGen benchmarks
-- Firecracker, gVisor, Kata Containers for stronger isolation
-- OWASP Top 10 for LLM Applications
-- NIST AI Risk Management Framework
+Ollama requires a privately reachable configured endpoint and separate real-model verification. gVisor/Firecracker, hardware attestation and external benchmark integration remain optional PLAN stretch goals and require suitable infrastructure. Cloud deployment, backups, restoration, sizing and platform controls must be verified on the actual hosting accounts.

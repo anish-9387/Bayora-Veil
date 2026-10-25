@@ -1,9 +1,10 @@
 import express from 'express';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 import pino from 'pino';
 import { hash, generateRequestId, bucketDuration, addTimingNoise } from '@bayora/crypto-utils';
 import { ObservationSchema, EvidenceArtifactSchema, AccessClass, OutcomeCategory, Severity, ActorRole } from '@bayora/schemas';
+if (process.env.NODE_ENV === 'production') throw new Error('Use the isolated Red observation path; the standalone prototype is disabled in production');
 
 const logger = pino.default({ level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
@@ -92,8 +93,8 @@ app.post('/runs/:id/evidence', async (req, res) => {
     defenseRule: z.string().optional(),
     stackTrace: z.string().optional(),
     toolTrace: z.string().optional(),
-    timing: z.record(z.number()).optional(),
-    hiddenLabels: z.record(z.string()).optional()
+    timing: z.record(z.string(), z.number()).optional(),
+    hiddenLabels: z.record(z.string(), z.string()).optional()
   });
 
   const bodyResult = evidenceSchema.safeParse(req.body);

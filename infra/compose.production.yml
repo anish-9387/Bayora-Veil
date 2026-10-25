@@ -1,0 +1,279 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.node
+    command: ["sh", "-c", "node apps/api/dist/db/migrate.js && exec node apps/api/dist/index.js"]
+    ports: ["127.0.0.1:3001:10000"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    networks: [api-db, api-red, api-blue, api-audit, api-replay, edge]
+    environment:
+      NODE_ENV: production
+      EXECUTION_PROFILE: isolated
+      PORT: 10000
+      DATABASE_URL: postgresql://bayora:${API_DB_PASSWORD:?required}@api-db:5432/bayora
+      AUTH_MODE: accounts
+      CORS_ORIGIN: ${CORS_ORIGIN:?required}
+      RED_CELL_URL: http://red:10000
+      RED_CELL_TOKEN: ${RED_CELL_TOKEN:?required}
+      BLUE_CELL_URL: http://blue:10000
+      BLUE_CELL_TOKEN: ${BLUE_CELL_TOKEN:?required}
+      AUDIT_CELL_URL: http://audit:10000
+      AUDIT_CELL_TOKEN: ${AUDIT_CELL_TOKEN:?required}
+      REPLAY_CELL_URL: http://replay:10000
+      REPLAY_CELL_TOKEN: ${REPLAY_CELL_TOKEN:?required}
+    depends_on:
+      api-db:
+        condition: service_healthy
+  red:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.node
+    command: ["node", "apps/api/dist/cells/server.js"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    networks: [red-db, api-red, red-target, replay-red]
+    environment:
+      NODE_ENV: production
+      EXECUTION_PROFILE: isolated
+      PORT: 10000
+      DATABASE_URL: postgresql://bayora:${RED_DB_PASSWORD:?required}@red-db:5432/bayora
+      CELL_KIND: red
+      CELL_TOKEN: ${RED_CELL_TOKEN:?required}
+      TARGET_ADAPTER_URL: http://target:10000
+      TARGET_TOKEN: ${TARGET_TOKEN:?required}
+      REPLAY_READ_TOKEN: ${RED_REPLAY_TOKEN:?required}
+    depends_on:
+      red-db:
+        condition: service_healthy
+  blue:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.node
+    command: ["node", "apps/api/dist/cells/server.js"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    networks: [blue-db, api-blue]
+    environment:
+      NODE_ENV: production
+      EXECUTION_PROFILE: isolated
+      PORT: 10000
+      DATABASE_URL: postgresql://bayora:${BLUE_DB_PASSWORD:?required}@blue-db:5432/bayora
+      CELL_KIND: blue
+      CELL_TOKEN: ${BLUE_CELL_TOKEN:?required}
+    depends_on:
+      blue-db:
+        condition: service_healthy
+  audit:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.node
+    command: ["node", "apps/api/dist/cells/server.js"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    networks: [audit-db, api-audit, replay-audit]
+    environment:
+      NODE_ENV: production
+      EXECUTION_PROFILE: isolated
+      PORT: 10000
+      DATABASE_URL: postgresql://bayora:${AUDIT_DB_PASSWORD:?required}@audit-db:5432/bayora
+      CELL_KIND: audit
+      CELL_TOKEN: ${AUDIT_CELL_TOKEN:?required}
+      REPLAY_READ_TOKEN: ${AUDIT_REPLAY_TOKEN:?required}
+      SIGNING_KEY_FILE: /run/secrets/signing-key.json
+    secrets: [signing-key.json]
+    depends_on:
+      audit-db:
+        condition: service_healthy
+  replay:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.node
+    command: ["node", "apps/api/dist/cells/server.js"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    networks: [replay-db, api-replay, replay-red, replay-audit, replay-target]
+    environment:
+      NODE_ENV: production
+      EXECUTION_PROFILE: isolated
+      PORT: 10000
+      DATABASE_URL: postgresql://bayora:${REPLAY_DB_PASSWORD:?required}@replay-db:5432/bayora
+      CELL_KIND: replay
+      CELL_TOKEN: ${REPLAY_CELL_TOKEN:?required}
+      TARGET_ADAPTER_URL: http://target:10000
+      TARGET_TOKEN: ${TARGET_REPLAY_TOKEN:?required}
+      RED_CELL_URL: http://red:10000
+      RED_CELL_TOKEN: ${RED_REPLAY_TOKEN:?required}
+      AUDIT_CELL_URL: http://audit:10000
+      AUDIT_CELL_TOKEN: ${AUDIT_REPLAY_TOKEN:?required}
+    depends_on:
+      replay-db:
+        condition: service_healthy
+  target:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.target
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    networks: [red-target, replay-target]
+    environment:
+      NODE_ENV: production
+      EXECUTION_PROFILE: isolated
+      PORT: 10000
+      TARGET_TOKEN: ${TARGET_TOKEN:?required}
+      TARGET_REPLAY_TOKEN: ${TARGET_REPLAY_TOKEN:?required}
+  api-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [api-db]
+    environment:
+      POSTGRES_DB: bayora
+      POSTGRES_USER: bayora
+      POSTGRES_PASSWORD: ${API_DB_PASSWORD:?required}
+    volumes: [api-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bayora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 0.5
+  red-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [red-db]
+    environment:
+      POSTGRES_DB: bayora
+      POSTGRES_USER: bayora
+      POSTGRES_PASSWORD: ${RED_DB_PASSWORD:?required}
+    volumes: [red-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bayora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 0.5
+  blue-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [blue-db]
+    environment:
+      POSTGRES_DB: bayora
+      POSTGRES_USER: bayora
+      POSTGRES_PASSWORD: ${BLUE_DB_PASSWORD:?required}
+    volumes: [blue-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bayora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 0.5
+  audit-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [audit-db]
+    environment:
+      POSTGRES_DB: bayora
+      POSTGRES_USER: bayora
+      POSTGRES_PASSWORD: ${AUDIT_DB_PASSWORD:?required}
+    volumes: [audit-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bayora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 0.5
+  replay-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [replay-db]
+    environment:
+      POSTGRES_DB: bayora
+      POSTGRES_USER: bayora
+      POSTGRES_PASSWORD: ${REPLAY_DB_PASSWORD:?required}
+    volumes: [replay-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bayora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 0.5
+networks:
+  api-audit:
+    internal: true
+  api-blue:
+    internal: true
+  api-db:
+    internal: true
+  api-red:
+    internal: true
+  api-replay:
+    internal: true
+  audit-db:
+    internal: true
+  blue-db:
+    internal: true
+  edge:
+    driver: bridge
+  red-db:
+    internal: true
+  red-target:
+    internal: true
+  replay-audit:
+    internal: true
+  replay-db:
+    internal: true
+  replay-red:
+    internal: true
+  replay-target:
+    internal: true
+volumes:
+  api-data:
+  red-data:
+  blue-data:
+  audit-data:
+  replay-data:
+secrets:
+  signing-key.json:
+    file: ${SIGNING_KEY_FILE:?required}

@@ -5,10 +5,11 @@ import { RunDetailPage } from './pages/RunDetailPage';
 import { LeakageLabPage } from './pages/LeakageLabPage';
 import { ForensicsPage } from './pages/ForensicsPage';
 import { ThreatModelPage } from './pages/ThreatModelPage';
+import { Session } from './components/Session';
 
 function App() {
   return (
-    <Layout>
+    <Session><Layout>
       <Routes>
         <Route path="/" element={<OverviewPage />} />
         <Route path="/runs" element={<OverviewPage runsOnly />} />
@@ -18,7 +19,7 @@ function App() {
         <Route path="/threat-model" element={<ThreatModelPage />} />
         <Route path="*" element={<div className="glass-card p-10"><h2 className="text-2xl font-semibold">Page not found</h2><Link to="/runs">Back to evaluation runs</Link></div>} />
       </Routes>
-    </Layout>
+    </Layout></Session>
   );
 }
 

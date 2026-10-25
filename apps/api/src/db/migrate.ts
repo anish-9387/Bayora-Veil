@@ -6,6 +6,10 @@ async function migrate() {
 
   try {
     await query(schema);
+    if (process.env.NODE_ENV === 'production') await query(`DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'metadata_no_raw_content') THEN
+        ALTER TABLE evidence_artifacts ADD CONSTRAINT metadata_no_raw_content CHECK (content IS NULL);
+      END IF; END $$`);
     console.log('Schema created successfully');
 
     await query(seedData);

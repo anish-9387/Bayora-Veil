@@ -21,7 +21,7 @@ export function validateBody<T extends ZodSchema>(schema: T) {
   };
 }
 
-export function validateParams<T extends ZodSchema>(schema: T) {
+export function validateParams<T extends Request['params']>(schema: z.ZodType<T>) {
   return (req: Request, res: Response, next: NextFunction) => {
     const result = schema.safeParse(req.params);
     if (!result.success) {
@@ -41,7 +41,7 @@ export function validateParams<T extends ZodSchema>(schema: T) {
   };
 }
 
-export function validateQuery<T extends ZodSchema>(schema: T) {
+export function validateQuery<T extends Request['query']>(schema: z.ZodType<T>) {
   return (req: Request, res: Response, next: NextFunction) => {
     const result = schema.safeParse(req.query);
     if (!result.success) {

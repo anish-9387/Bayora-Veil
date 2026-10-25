@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../api/client';
 import { useRuns, useCreateRun } from '../hooks/useApi';
 import { PageHeader, Card, Badge, StatusBadge, DataTable, LoadingSpinner, EmptyState } from '../components/Layout';
 import { Plus, ChevronRight, Clock } from 'lucide-react';
@@ -5,6 +7,8 @@ import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 
 export function OverviewPage({ runsOnly = false }: { runsOnly?: boolean }) {
+  const role = sessionStorage.getItem('bayora-role') || 'orchestrator';
+  const { data: metrics, error: metricsError } = useQuery({ queryKey: ['metrics'], queryFn: api.metrics, enabled: ['orchestrator', 'auditor'].includes(role) });
   const [offset, setOffset] = useState(0);
   const { data: runsResponse, isLoading, error, refetch } = useRuns(undefined, 10, offset);
   const createRun = useCreateRun();
@@ -34,7 +38,7 @@ export function OverviewPage({ runsOnly = false }: { runsOnly?: boolean }) {
       <PageHeader
         title={runsOnly ? 'Evaluation runs' : 'Overview'}
         description={runsOnly ? 'Explore your runs, follow their progress, and inspect the evidence.' : 'Evaluation runs and verification status.'}
-        action={
+        action={role === 'orchestrator' &&
           <button
             onClick={() => setShowCreateModal(true)}
             className="px-4 py-2 bg-bayora-primary hover:bg-bayora-primary-hover text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
@@ -66,6 +70,8 @@ export function OverviewPage({ runsOnly = false }: { runsOnly?: boolean }) {
         </Card>
       </div>
 
+      {metrics?.data && <Card title="Workspace measurements"><div className="grid grid-cols-3 gap-4"><div><strong>{metrics.data.denied}</strong><p className="text-sm">Access denials</p></div><div><strong>{metrics.data.failures}</strong><p className="text-sm">Execution failures</p></div><div><strong>{metrics.data.timeouts}</strong><p className="text-sm">Target timeouts</p></div></div><p className="text-sm text-bayora-text-muted mt-4">Evidence route: {metrics.data.evidence.premature} premature releases across {metrics.data.evidence.attempts} auditor attempts. API latency (24h, n={metrics.data.latency.samples}): p50 {metrics.data.latency.p50 === null ? "not measured" : `${Number(metrics.data.latency.p50).toFixed(1)}ms`}, p95 {metrics.data.latency.p95 === null ? "not measured" : `${Number(metrics.data.latency.p95).toFixed(1)}ms`}.</p></Card>}
+      {metricsError && <p role="alert">Workspace measurements are unavailable.</p>}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card title="Recent Runs" className="lg:col-span-2">
           {isLoading ? (
@@ -75,7 +81,7 @@ export function OverviewPage({ runsOnly = false }: { runsOnly?: boolean }) {
               icon={Clock}
               title="No runs yet"
               description="Create your first evaluation run to start testing AI safety isolation."
-              action={
+              action={role === 'orchestrator' &&
                 <button
                   onClick={() => setShowCreateModal(true)}
                   className="px-4 py-2 bg-bayora-primary hover:bg-bayora-primary-hover text-white rounded-lg font-medium"
@@ -109,15 +115,15 @@ export function OverviewPage({ runsOnly = false }: { runsOnly?: boolean }) {
           </div>
         </Card>
 
-        <Card title="Prototype capabilities">
-          <p className="text-sm text-bayora-text-muted mb-5">Design capabilities, not live isolation checks. Local processes do not provide container isolation.</p>
+        <Card title="Execution boundaries">
+          <p className="text-sm text-bayora-text-muted mb-5">The production profile uses private services and independent databases. See Threat Model for deployment assumptions.</p>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full bg-bayora-success" />
                 <span>Red/Blue separation</span>
               </div>
-              <Badge>Role-based</Badge>
+              <Badge>Tenant + role</Badge>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -177,16 +183,6 @@ export function OverviewPage({ runsOnly = false }: { runsOnly?: boolean }) {
                   <option value="mock-adapter">Mock Adapter (Deterministic)</option>
                   <option value="ollama-llama3.2">Ollama Llama 3.2</option>
                 </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Created By (User ID)</label>
-                <input
-                  type="text"
-                  value={formData.createdBy}
-                  onChange={(e) => setFormData({ ...formData, createdBy: e.target.value })}
-                  className="w-full font-mono text-sm"
-                  required
-                />
               </div>
               <div className="flex gap-3 pt-4">
                 <button

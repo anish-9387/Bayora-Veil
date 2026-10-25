@@ -45,27 +45,27 @@ export const OutcomeCategory = z.enum([
 export type OutcomeCategory = z.infer<typeof OutcomeCategory>;
 
 export const CreateRunSchema = z.object({
-  policyVersion: z.string().min(1),
-  modelAdapter: z.string().min(1),
-  createdBy: z.string().uuid(),
-  config: z.record(z.unknown()).optional()
+  policyVersion: z.literal('v1.0.0'),
+  modelAdapter: z.enum(['mock-adapter', 'ollama-llama3.2']),
+  createdBy: z.guid(),
+  config: z.object({ datasetVersion: z.literal('synthetic-v1').optional() }).strict().optional()
 });
 export type CreateRunInput = z.infer<typeof CreateRunSchema>;
 
 export const RunSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   status: RunStatus,
   policyVersion: z.string(),
   modelAdapter: z.string(),
-  createdBy: z.string().uuid(),
+  createdBy: z.guid(),
   createdAt: z.string().datetime(),
   closedAt: z.string().datetime().nullable(),
-  config: z.record(z.unknown()).optional()
+  config: z.record(z.string(), z.unknown()).optional()
 });
 export type Run = z.infer<typeof RunSchema>;
 
 export const PayloadCommitmentSchema = z.object({
-  runId: z.string().uuid(),
+  runId: z.guid(),
   commitmentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   createdAt: z.string().datetime(),
   revealAfterClose: z.boolean().default(true)
@@ -74,13 +74,13 @@ export type PayloadCommitment = z.infer<typeof PayloadCommitmentSchema>;
 
 export const SubmitPayloadSchema = z.object({
   payload: z.string().min(1).max(100000),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 export type SubmitPayloadInput = z.infer<typeof SubmitPayloadSchema>;
 
 export const ObservationSchema = z.object({
-  id: z.string().uuid(),
-  runId: z.string().uuid(),
+  id: z.guid(),
+  runId: z.guid(),
   caseId: z.string(),
   outcome: OutcomeCategory,
   severity: Severity,
@@ -93,8 +93,8 @@ export const ObservationSchema = z.object({
 export type Observation = z.infer<typeof ObservationSchema>;
 
 export const EvidenceArtifactSchema = z.object({
-  id: z.string().uuid(),
-  runId: z.string().uuid(),
+  id: z.guid(),
+  runId: z.guid(),
   artifactType: z.enum(['prompt', 'response', 'defense_rule', 'stack_trace', 'tool_trace', 'timing', 'other']),
   storageKey: z.string(),
   digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
@@ -104,8 +104,9 @@ export const EvidenceArtifactSchema = z.object({
 export type EvidenceArtifact = z.infer<typeof EvidenceArtifactSchema>;
 
 export const AuditEventSchema = z.object({
-  id: z.string().uuid(),
-  runId: z.string().uuid(),
+  canonicalPayload: z.string().optional(),
+  id: z.guid(),
+  runId: z.guid(),
   sequence: z.number().int().positive(),
   eventType: EventType,
   timestamp: z.string().datetime(),
@@ -118,7 +119,9 @@ export const AuditEventSchema = z.object({
 export type AuditEvent = z.infer<typeof AuditEventSchema>;
 
 export const RunManifestSchema = z.object({
-  runId: z.string().uuid(),
+  datasetVersion: z.string().optional(),
+  modelVersion: z.string().optional(),
+  runId: z.guid(),
   merkleRoot: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   finalChainHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   signature: z.string().min(128), // Ed25519 signature is 128 hex chars
@@ -132,13 +135,13 @@ export type RunManifest = z.infer<typeof RunManifestSchema>;
 
 export const LeakageExperimentConfigSchema = z.object({
   type: z.enum(['blind_classification', 'timing_leakage', 'cross_tenant_access']),
-  runId: z.string().uuid(),
-  config: z.record(z.unknown())
+  runId: z.guid(),
+  config: z.record(z.string(), z.unknown())
 });
 export type LeakageExperimentConfig = z.infer<typeof LeakageExperimentConfigSchema>;
 
 export const ExperimentResultSchema = z.object({
-  experimentId: z.string().uuid(),
+  experimentId: z.guid(),
   metricName: z.string(),
   metricValue: z.number(),
   sampleCount: z.number().int().positive(),
@@ -148,39 +151,39 @@ export const ExperimentResultSchema = z.object({
 export type ExperimentResult = z.infer<typeof ExperimentResultSchema>;
 
 export const TargetRequestSchema = z.object({
-  runId: z.string().uuid(),
+  runId: z.guid(),
   caseId: z.string(),
   prompt: z.string(),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
   timeoutMs: z.number().int().positive().default(30000)
 });
 export type TargetRequest = z.infer<typeof TargetRequestSchema>;
 
 export const TargetResponseSchema = z.object({
-  runId: z.string().uuid(),
+  runId: z.guid(),
   caseId: z.string(),
   response: z.string(),
   tokensUsed: z.number().int().nonnegative().optional(),
   latencyMs: z.number().int().nonnegative(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 export type TargetResponse = z.infer<typeof TargetResponseSchema>;
 
 export const BlueDefenseInputSchema = z.object({
-  runId: z.string().uuid(),
+  runId: z.guid(),
   caseId: z.string(),
   observation: ObservationSchema,
-  defenseConfig: z.record(z.unknown()).optional()
+  defenseConfig: z.record(z.string(), z.unknown()).optional()
 });
 export type BlueDefenseInput = z.infer<typeof BlueDefenseInputSchema>;
 
 export const BlueDefenseOutputSchema = z.object({
-  runId: z.string().uuid(),
+  runId: z.guid(),
   caseId: z.string(),
   action: z.enum(['allow', 'block', 'flag', 'modify']),
   reason: z.string(),
   modifiedObservation: ObservationSchema.optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 export type BlueDefenseOutput = z.infer<typeof BlueDefenseOutputSchema>;
 
@@ -205,9 +208,9 @@ export const ApiResponseSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
     error: z.object({
       code: z.string(),
       message: z.string(),
-      requestId: z.string().uuid()
+      requestId: z.guid()
     }).optional(),
-    requestId: z.string().uuid()
+    requestId: z.guid()
   });
 
 export const PaginatedResponseSchema = <T extends z.ZodTypeAny>(itemSchema: T) =>
@@ -224,7 +227,7 @@ export const HealthCheckSchema = z.object({
   service: z.string(),
   version: z.string(),
   timestamp: z.string().datetime(),
-  checks: z.record(z.object({
+  checks: z.record(z.string(), z.object({
     status: z.enum(['pass', 'warn', 'fail']),
     message: z.string().optional()
   })).optional()
@@ -233,7 +236,7 @@ export type HealthCheck = z.infer<typeof HealthCheckSchema>;
 
 export const VerifyResultSchema = z.object({
   valid: z.boolean(),
-  runId: z.string().uuid(),
+  runId: z.guid(),
   checks: z.array(z.object({
     name: z.string(),
     passed: z.boolean(),

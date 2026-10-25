@@ -1,14 +1,15 @@
 import type { ApiResponse, Run, Observation, EvidenceArtifact, RunManifest, VerifyResult, ExperimentResult } from '../types';
 
-const API_BASE = '/api/v1';
+export const API_BASE = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/$/, '');
 
 async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'X-Service-ID': 'web-dashboard',
-      'X-Service-Role': (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('bayora-role')) || 'orchestrator',
+      ...(sessionStorage.getItem('bayora-demo') === 'true' ? {
+        'X-Service-ID': 'web-dashboard', 'X-Service-Role': sessionStorage.getItem('bayora-role') || 'orchestrator'
+      } : { Authorization: `Bearer ${sessionStorage.getItem('bayora-token') || ''}` }),
       ...options.headers
     }
   });
@@ -16,6 +17,7 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
   const data = await response.json();
   
   if (!response.ok) {
+    if (response.status === 401) { sessionStorage.removeItem('bayora-token'); window.location.reload(); }
     throw new Error(data.error?.message || `HTTP ${response.status}`);
   }
 
@@ -23,7 +25,11 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
 }
 
 export const api = {
+  metrics: () => fetchApi<{ denied: number; failures: number; timeouts: number; latency: { samples: number; p50: number | null; p95: number | null }; evidence: { attempts: number; premature: number } }>('/metrics'),
   runs: {
+    bundle: (id: string) => fetchApi<Record<string, unknown>>(`/runs/${id}/bundle`),
+    commitment: (id: string) => fetchApi<{ commitmentHash: string } | null>(`/runs/${id}/commitment`),
+    replay: (id: string) => fetchApi<{ matches: boolean; originalDigest: string; replayDigest: string; method: string }>(`/runs/${id}/replay`, { method: 'POST' }),
     tamperCheck: (id: string) => fetchApi<{ original: VerifyResult; tampered: VerifyResult }>(`/runs/${id}/tamper-check`, { method: 'POST' }),
     list: (params?: { status?: string; limit?: number; offset?: number }) => {
       const query = new URLSearchParams();
@@ -71,6 +77,7 @@ export const api = {
   },
 
   experiments: {
+    list: () => fetchApi<Array<{ id: string; type: string; status: string; started_at: string; run_id: string }>>('/experiments'),
     createLeakage: (data: { type: string; runId: string; config: Record<string, unknown> }) =>
       fetchApi<{ experimentId: string }>('/experiments/leakage', { method: 'POST', body: JSON.stringify(data) }),
     

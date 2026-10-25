@@ -1,0 +1,240 @@
+services:
+  - type: web
+    name: bayora-api
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/Dockerfile.node
+    preDeployCommand: node apps/api/dist/db/migrate.js
+    healthCheckPath: /ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: accounts
+      - key: EXECUTION_PROFILE
+        value: isolated
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bayora-api-db
+          property: connectionString
+      - key: CORS_ORIGIN
+        sync: false
+      - key: RED_CELL_URL
+        fromService:
+          type: pserv
+          name: bayora-red
+          property: hostport
+      - key: RED_CELL_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-red
+          envVarKey: CELL_TOKEN
+      - key: BLUE_CELL_URL
+        fromService:
+          type: pserv
+          name: bayora-blue
+          property: hostport
+      - key: BLUE_CELL_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-blue
+          envVarKey: CELL_TOKEN
+      - key: AUDIT_CELL_URL
+        fromService:
+          type: pserv
+          name: bayora-audit
+          property: hostport
+      - key: AUDIT_CELL_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-audit
+          envVarKey: CELL_TOKEN
+      - key: REPLAY_CELL_URL
+        fromService:
+          type: pserv
+          name: bayora-replay
+          property: hostport
+      - key: REPLAY_CELL_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-replay
+          envVarKey: CELL_TOKEN
+  - type: pserv
+    name: bayora-red
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/Dockerfile.node
+    dockerCommand: node apps/api/dist/cells/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EXECUTION_PROFILE
+        value: isolated
+      - key: CELL_KIND
+        value: red
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bayora-red-db
+          property: connectionString
+      - key: CELL_TOKEN
+        generateValue: true
+      - key: TARGET_ADAPTER_URL
+        fromService:
+          type: pserv
+          name: bayora-target
+          property: hostport
+      - key: TARGET_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-target
+          envVarKey: TARGET_TOKEN
+      - key: REPLAY_READ_TOKEN
+        generateValue: true
+  - type: pserv
+    name: bayora-blue
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/Dockerfile.node
+    dockerCommand: node apps/api/dist/cells/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EXECUTION_PROFILE
+        value: isolated
+      - key: CELL_KIND
+        value: blue
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bayora-blue-db
+          property: connectionString
+      - key: CELL_TOKEN
+        generateValue: true
+  - type: pserv
+    name: bayora-audit
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/Dockerfile.node
+    dockerCommand: node apps/api/dist/cells/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EXECUTION_PROFILE
+        value: isolated
+      - key: CELL_KIND
+        value: audit
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bayora-audit-db
+          property: connectionString
+      - key: CELL_TOKEN
+        generateValue: true
+      - key: SIGNING_KEY_FILE
+        value: /etc/secrets/signing-key.json
+      - key: REPLAY_READ_TOKEN
+        generateValue: true
+  - type: pserv
+    name: bayora-replay
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/Dockerfile.node
+    dockerCommand: node apps/api/dist/cells/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EXECUTION_PROFILE
+        value: isolated
+      - key: CELL_KIND
+        value: replay
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bayora-replay-db
+          property: connectionString
+      - key: CELL_TOKEN
+        generateValue: true
+      - key: TARGET_ADAPTER_URL
+        fromService:
+          type: pserv
+          name: bayora-target
+          property: hostport
+      - key: TARGET_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-target
+          envVarKey: TARGET_REPLAY_TOKEN
+      - key: RED_CELL_URL
+        fromService:
+          type: pserv
+          name: bayora-red
+          property: hostport
+      - key: RED_CELL_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-red
+          envVarKey: REPLAY_READ_TOKEN
+      - key: AUDIT_CELL_URL
+        fromService:
+          type: pserv
+          name: bayora-audit
+          property: hostport
+      - key: AUDIT_CELL_TOKEN
+        fromService:
+          type: pserv
+          name: bayora-audit
+          envVarKey: REPLAY_READ_TOKEN
+  - type: pserv
+    name: bayora-target
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/Dockerfile.target
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: TARGET_TOKEN
+        generateValue: true
+      - key: TARGET_REPLAY_TOKEN
+        generateValue: true
+
+databases:
+  - name: bayora-api-db
+    region: singapore
+    plan: basic-256mb
+    databaseName: bayora_api
+    ipAllowList: []
+  - name: bayora-red-db
+    region: singapore
+    plan: basic-256mb
+    databaseName: bayora_red
+    ipAllowList: []
+  - name: bayora-blue-db
+    region: singapore
+    plan: basic-256mb
+    databaseName: bayora_blue
+    ipAllowList: []
+  - name: bayora-audit-db
+    region: singapore
+    plan: basic-256mb
+    databaseName: bayora_audit
+    ipAllowList: []
+  - name: bayora-replay-db
+    region: singapore
+    plan: basic-256mb
+    databaseName: bayora_replay
+    ipAllowList: []

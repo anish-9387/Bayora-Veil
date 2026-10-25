@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useLeakageExperiment, useRuns } from '../hooks/useApi';
 import { PageHeader, Card, Badge, LoadingSpinner, EmptyState } from '../components/Layout';
@@ -5,7 +6,8 @@ import { Play, BarChart2, Zap, Shield, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 
 export function LeakageLabPage() {
-  const { data: runsResponse } = useRuns(undefined, 100);
+  const { data: runsResponse, error: runsError } = useRuns(undefined, 100);
+  const { data: history, error: historyError, refetch: refreshHistory } = useQuery({ queryKey: ['experiments'], queryFn: api.experiments.list });
   const createExperiment = useLeakageExperiment();
   const [selectedRun, setSelectedRun] = useState<string>('');
   const [experimentType, setExperimentType] = useState<'blind_classification' | 'timing_leakage' | 'cross_tenant_access'>('blind_classification');
@@ -17,9 +19,9 @@ export function LeakageLabPage() {
   const runs = runsResponse?.data || [];
 
   const configs: Record<string, any> = {
-    blind_classification: { samples: 100, classes: ['prompt_injection', 'jailbreak', 'safe'], firewallEnabled: true },
-    timing_leakage: { samples: 50, profiles: ['fast', 'slow'], bucketingEnabled: true },
-    cross_tenant_access: { attempts: 20, targets: ['red_payload', 'blue_rules', 'raw_evidence'] }
+    blind_classification: { samples: 96, classes: ['class-0', 'class-1', 'class-2'], comparison: 'firewall OFF / ON' },
+    timing_leakage: { samples: 48, profiles: ['4ms', '16ms'], bucketMs: 100 },
+    cross_tenant_access: { attempts: 18, targets: ['red_payload', 'blue_rules', 'raw_evidence'] }
   };
 
   const handleStartExperiment = async () => {
@@ -36,6 +38,7 @@ export function LeakageLabPage() {
       const measured = await api.experiments.getResults(res.data.experimentId);
       setResults(measured.data || []);
       setShowResults(res.data.experimentId);
+      void refreshHistory();
       setRunningExperiment(false);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Experiment failed');
@@ -50,13 +53,15 @@ export function LeakageLabPage() {
         description="Measure information leakage through controlled experiments. Compare raw and filtered channels using repeatable synthetic tests."
       />
 
+      {runsError && <p role="alert" className="text-bayora-danger">Could not load runs: {runsError.message}. Select Orchestrator or Auditor to browse runs.</p>}
       {error && <p role="alert" className="text-bayora-danger">{error}</p>}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card title="Experiment Configuration">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Select Run</label>
+              <label htmlFor="experiment-run" className="block text-sm font-medium mb-1">Select Run</label>
               <select
+                id="experiment-run"
                 value={selectedRun}
                 onChange={(e) => setSelectedRun(e.target.value)}
                 className="w-full"
@@ -70,8 +75,9 @@ export function LeakageLabPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Experiment Type</label>
+              <label htmlFor="experiment-type" className="block text-sm font-medium mb-1">Experiment Type</label>
               <select
+                id="experiment-type"
                 value={experimentType}
                 onChange={(e) => setExperimentType(e.target.value as any)}
                 className="w-full"
@@ -79,13 +85,14 @@ export function LeakageLabPage() {
               >
                 <option value="blind_classification">Blind Payload Classification</option>
                 <option value="timing_leakage">Timing Side-Channel Leakage</option>
-                <option value="cross_tenant_access">Cross-Tenant Access Attempts</option>
+                <option value="cross_tenant_access">Cross-Role Access Attempts</option>
               </select>
             </div>
 
             <div className="p-4 bg-bayora-dark rounded-lg text-sm space-y-2">
               <p className="font-medium">Configuration</p>
-              <pre className="text-xs text-bayora-text-muted">{JSON.stringify(configs[experimentType], null, 2)}</pre>
+              <p className="text-bayora-text-muted">{configs[experimentType].samples || configs[experimentType].attempts} samples per comparison</p>
+              <p className="text-bayora-text-muted">{experimentType === 'blind_classification' ? 'Three balanced classes. Compare the same marker classifier with the firewall off and on.' : experimentType === 'timing_leakage' ? 'Compare 4ms and 16ms tasks, before and after 100ms timing buckets.' : 'Try Red payload, Blue rule, and evidence routes from disallowed roles.'}</p>
             </div>
 
             <button
@@ -125,15 +132,15 @@ export function LeakageLabPage() {
             <ExperimentCard
               icon={Zap}
               title="Timing Leakage"
-              description="Can an observer infer internal work profile from response timing? Tests bucketing/noise mitigations."
+              description="Can an observer infer internal work profile from response timing? Compares raw timings with 100ms buckets."
               metric="Classifier accuracy before/after mitigation"
               badge="Side-channel"
             />
             <ExperimentCard
               icon={AlertTriangle}
-              title="Cross-Tenant Access"
-              description="Attempts unauthorized access to Red payloads, Blue rules, raw evidence. Every test expects denial."
-              metric="Denial rate & audit log coverage"
+              title="Tenant & Role Access"
+              description="Attempts unauthorized access to Red payloads, Blue rules, raw evidence and another tenant’s run session. Every test expects denial."
+              metric="HTTP denial rate"
               badge="Authorization"
             />
           </div>
@@ -168,13 +175,10 @@ export function LeakageLabPage() {
         </Card>
       )}
 
-      {!showResults && <Card title="Experiment History">
-        <EmptyState
-          icon={BarChart2}
-          title="No experiments run yet"
-          description="Select a closed run and start an experiment to see measured leakage results here."
-        />
-      </Card>}
+      <Card title="Experiment History">
+        {historyError && <p role="alert">Could not load saved experiments.</p>}
+        {!history?.data?.length ? <EmptyState icon={BarChart2} title="No saved experiments" description="Start a comparison on a closed run." /> : <div className="space-y-3">{history.data.map(item => <button key={item.id} className="block w-full text-left rounded-xl border p-4" onClick={async () => { try { const result = await api.experiments.getResults(item.id); setResults(result.data || []); setExperimentType(item.type as typeof experimentType); setShowResults(item.id); } catch (e) { setError(e instanceof Error ? e.message : 'Could not load results'); } }}>{item.type.replace(/_/g, ' ')} · {item.status}<span className="block text-xs text-bayora-text-muted">{new Date(item.started_at).toLocaleString()}</span></button>)}</div>}
+      </Card>
     </div>
   );
 }

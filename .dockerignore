@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/venv
+**/.venv
+**/__pycache__
+.git
+.env
+.env.*
+**/.bayora
+**/*.log
+**/coverage
+**/*.tsbuildinfo

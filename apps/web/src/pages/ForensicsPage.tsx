@@ -9,8 +9,10 @@ export function ForensicsPage() {
   const { data: runsResponse } = useRuns(undefined, 100);
   const [selectedRunId, setSelectedRunId] = useState<string>('');
   const { data: runData } = useRun(selectedRunId);
-  const { data: manifestData } = useManifest(selectedRunId);
+  const { data: manifestData } = useManifest(selectedRunId, runData?.data?.status);
   const verifyRun = useVerifyRun();
+  const [replay, setReplay] = useState<{ matches: boolean; method: string } | null>(null);
+  const [replaying, setReplaying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [showTamperDemo, setShowTamperDemo] = useState(false);
 
@@ -101,7 +103,16 @@ export function ForensicsPage() {
                 <AlertTriangle className="w-5 h-5" />
                 Run Tamper Demonstration
               </button>
+              <button className="w-full px-4 py-3 border rounded-lg" onClick={async () => {
+                try {
+                  const response = await api.runs.bundle(selectedRunId);
+                  const url = URL.createObjectURL(new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' }));
+                  const link = document.createElement('a'); link.href = url; link.download = `bayora-${selectedRunId}.json`; link.click(); URL.revokeObjectURL(url);
+                } catch (error) { setTamperError(error instanceof Error ? error.message : 'Export failed'); }
+              }}>Download verification bundle</button>
 
+              {sessionStorage.getItem('bayora-role') === 'auditor' && <button disabled={replaying} className="w-full px-4 py-3 border rounded-lg" onClick={async () => { setReplaying(true); setTamperError(''); try { const r = await api.runs.replay(selectedRunId); setReplay(r.data || null); } catch (e) { setTamperError(e instanceof Error ? e.message : 'Replay failed'); } finally { setReplaying(false); } }}>{replaying ? 'Replaying…' : 'Replay in a fresh target session'}</button>}
+              {replay && <p role="status">{replay.matches ? 'Replay response matches the sealed evidence.' : 'Replay response differs from the sealed evidence.'} {replay.method}</p>}
               {verifyResult && (
                 <div className={`p-4 rounded-lg ${verifyResult.valid ? 'bg-green-500/20 border border-green-500/30' : 'bg-red-500/20 border border-red-500/30'}`}>
                   <div className="flex items-center gap-3 mb-3">

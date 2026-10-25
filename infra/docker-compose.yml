@@ -1,3 +1,4 @@
+# Historical local prototype. Use infra/compose.production.yml for the isolated deployment.
 version: '3.8'
 
 services:

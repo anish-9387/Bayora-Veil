@@ -4,6 +4,7 @@ export default {
   esbuild: { jsx: 'automatic' },
   test: {
     globals: true,
+    env: { AUTH_MODE: 'demo' },
     environment: 'node',
     include: ['**/*.test.ts', '**/*.test.tsx'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/venv/**', '**/.venv/**'],

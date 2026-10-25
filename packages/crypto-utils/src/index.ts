@@ -63,6 +63,11 @@ export function hashCommitment(payload: string): string {
   return hash(payload);
 }
 
+export function hashPrivateArtifact(kind: 'payload' | 'response', value: string, nonce: string): string {
+  if (!/^[a-f0-9]{64}$/i.test(nonce)) throw new Error('Artifact nonce must contain 32 random bytes');
+  return hash(canonicalizeEvent({ purpose: `bayora:${kind}:v1`, value, nonce }));
+}
+
 export function buildHashChain(events: Array<{ canonicalPayload: string; previousHash: string }>): Array<{ eventHash: string; previousHash: string }> {
   const results: Array<{ eventHash: string; previousHash: string }> = [];
   let previousHash = 'sha256:' + '0'.repeat(64);
@@ -152,6 +157,12 @@ let signingKeyPair: { privateKey: string; publicKey: string } | null = null;
 export function getSigningKey(): { privateKey: string; publicKey: string } {
   if (!signingKeyPair) {
     const path = resolve(process.env.SIGNING_KEY_FILE || '.bayora/signing-key.json');
+    if (process.env.NODE_ENV === 'production') {
+      if (!process.env.SIGNING_KEY_FILE) throw new Error('A persistent signing key secret is required');
+      signingKeyPair = KeyPairSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+      if (!verify(sign('key-check', signingKeyPair.privateKey), 'key-check', signingKeyPair.publicKey)) throw new Error('Signing key pair mismatch');
+      return signingKeyPair;
+    }
     mkdirSync(dirname(path), { recursive: true });
     try {
       writeFileSync(path, JSON.stringify(generateKeyPair()), { flag: 'wx', mode: 0o600 });

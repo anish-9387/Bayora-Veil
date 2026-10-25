@@ -1,7 +1,8 @@
+import { api } from '../api/client';
 import { useQuery } from '@tanstack/react-query';
-import { useRun, useCommitPayload, useExecuteRun, useEvaluateRun, useCloseRun, useObservations, useReleaseObservation, useEvidence, useManifest, useVerifyRun, useSignManifest, usePublicKey } from '../hooks/useApi';
+import { useRun, useCommitPayload, useExecuteRun, useEvaluateRun, useCloseRun, useObservations, useEvidence, useManifest, useVerifyRun, useSignManifest, usePublicKey } from '../hooks/useApi';
 import { PageHeader, Card, Badge, StatusBadge, DataTable, LoadingSpinner, EmptyState } from '../components/Layout';
-import { RefreshCw, CheckCircle, XCircle, Lock, Shield, Eye, FileText, Hash, Key, RotateCcw } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, Lock, Shield, FileText, Hash, Key, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { useParams } from 'react-router-dom';
@@ -11,21 +12,16 @@ export function RunDetailPage() {
   const role = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('bayora-role')) || 'orchestrator';
   const { id } = useParams<{ id: string }>();
   const { data: runData, isLoading: runLoading, error: runError, refetch: refetchRun } = useRun(id!);
-  const { data: commitment } = useQuery({ queryKey: ['commitment', id, runData?.data?.status], queryFn: async () => {
-    const response = await fetch(`/api/v1/runs/${id}/commitment`, { headers: { 'X-Service-ID': 'web-dashboard', 'X-Service-Role': role } });
-    if (!response.ok) throw new Error('Could not load commitment');
-    return response.json() as Promise<{ data: { commitmentHash: string } | null }>;
-  }, enabled: !!id });
+  const { data: commitment } = useQuery({ queryKey: ['commitment', id, runData?.data?.status], queryFn: () => api.runs.commitment(id!), enabled: !!id });
   const { data: observationsData, refetch: refetchObservations } = useObservations(id!);
-  const { data: evidenceData, refetch: refetchEvidence } = useEvidence(id!);
-  const { data: manifestData, refetch: refetchManifest } = useManifest(id!);
+  const { data: evidenceData, refetch: refetchEvidence } = useEvidence(id!, runData?.data?.status);
+  const { data: manifestData, refetch: refetchManifest } = useManifest(id!, runData?.data?.status);
   const { data: publicKeyData } = usePublicKey();
 
   const commitPayload = useCommitPayload();
   const executeRun = useExecuteRun();
   const evaluateRun = useEvaluateRun();
   const closeRun = useCloseRun();
-  const releaseObservation = useReleaseObservation();
   const verifyRun = useVerifyRun();
   const signManifest = useSignManifest();
 
@@ -36,8 +32,6 @@ export function RunDetailPage() {
 
   const [showCommitModal, setShowCommitModal] = useState(false);
   const [commitPayloadText, setCommitPayloadText] = useState('');
-  const [showReleaseModal, setShowReleaseModal] = useState(false);
-  const [releaseForm, setReleaseForm] = useState({ caseId: '', outcome: 'safe', severity: 'low', category: 'safe', confidence: 0.5 });
   const [showEvidenceDetail, setShowEvidenceDetail] = useState<string | null>(null);
 
   if (runLoading) return <div className="flex justify-center py-8"><LoadingSpinner size="lg" /></div>;
@@ -48,7 +42,7 @@ export function RunDetailPage() {
   const canExecute = role === 'orchestrator' && run.status === 'COMMITTED';
   const canEvaluate = role === 'orchestrator' && run.status === 'RUNNING';
   const canClose = role === 'orchestrator' && run.status === 'EVALUATED';
-  const canVerify = run.status === 'CLOSED' || run.status === 'VERIFIED';
+  const canVerify = ['auditor', 'orchestrator'].includes(role) && (run.status === 'CLOSED' || run.status === 'VERIFIED');
   const canSign = role === 'orchestrator' && run.status === 'CLOSED';
   const canViewEvidence = role === 'auditor' && (run.status === 'CLOSED' || run.status === 'VERIFIED');
 
@@ -61,18 +55,6 @@ export function RunDetailPage() {
       refetchRun();
     } catch (error) {
       console.error('Commit failed:', error);
-    }
-  };
-
-  const handleRelease = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await releaseObservation.mutateAsync({ id: run.id, data: releaseForm });
-      setShowReleaseModal(false);
-      refetchObservations();
-      refetchRun();
-    } catch (error) {
-      console.error('Release failed:', error);
     }
   };
 
@@ -140,8 +122,8 @@ export function RunDetailPage() {
       />
 
       {commitment?.data && <Card title="Payload commitment"><code className="text-xs break-all">{commitment.data.commitmentHash}</code></Card>}
-      {run.status === 'CREATED' && role !== 'red' && <p className="text-sm text-bayora-text-muted">Switch to Red team to commit a payload.</p>}
-      {[commitPayload.error, executeRun.error, evaluateRun.error, closeRun.error, releaseObservation.error, verifyRun.error, signManifest.error].filter(Boolean).map((error, i) => <p key={i} role="alert" className="glass-card p-4 text-bayora-danger">{error?.message}</p>)}
+      {run.status === 'CREATED' && role !== 'red' && <p className="text-sm text-bayora-text-muted">A Red team account must commit the payload before execution.</p>}
+      {[commitPayload.error, executeRun.error, evaluateRun.error, closeRun.error, verifyRun.error, signManifest.error].filter(Boolean).map((error, i) => <p key={i} role="alert" className="glass-card p-4 text-bayora-danger">{error?.message}</p>)}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card title="Run Status" className="lg:col-span-2">
           <div className="space-y-4">
@@ -252,14 +234,7 @@ export function RunDetailPage() {
                 <Hash className="w-4 h-4" /> Verify Integrity
               </button>
             )}
-            {run.status === 'CLOSED' || run.status === 'VERIFIED' ? (
-              <button
-                onClick={() => setShowReleaseModal(true)}
-                className="w-full px-4 py-2 border border-bayora-border hover:bg-bayora-border text-bayora-text rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
-              >
-                <Eye className="w-4 h-4" /> Release Observation
-              </button>
-            ) : null}
+
           </div>
         </Card>
       </div>
@@ -270,7 +245,7 @@ export function RunDetailPage() {
             <EmptyState
               icon={FileText}
               title="No observations released"
-              description="Observations are released by the firewall after run closure."
+              description="Approved observations appear after evaluation. Raw evidence remains restricted until closure."
             />
           ) : (
             <DataTable
@@ -314,7 +289,7 @@ export function RunDetailPage() {
           ) : (
             <div className="text-center py-8 text-bayora-text-muted">
               <Lock className="w-12 h-12 mx-auto mb-4 text-bayora-border" />
-              <p>Switch to Auditor after closure to inspect evidence</p>
+              <p>Sign in as an auditor after closure to inspect evidence</p>
               <p className="text-sm mt-1">Status: {run.status}</p>
             </div>
           )}
@@ -373,67 +348,6 @@ export function RunDetailPage() {
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => setShowCommitModal(false)} className="flex-1 px-4 py-2 border border-bayora-border rounded-lg hover:bg-bayora-border transition-colors">Cancel</button>
                 <button type="submit" disabled={commitPayload.isPending} className="flex-1 px-4 py-2 bg-bayora-primary hover:bg-bayora-primary-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50">{commitPayload.isPending ? 'Committing...' : 'Commit Payload'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showReleaseModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-bayora-surface border border-bayora-border rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-xl font-bold mb-4">Release Observation</h3>
-            <form onSubmit={handleRelease} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Case ID</label>
-                <input type="text" value={releaseForm.caseId} onChange={(e) => setReleaseForm({...releaseForm, caseId: e.target.value})} className="w-full" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Outcome</label>
-                <select value={releaseForm.outcome} onChange={(e) => setReleaseForm({...releaseForm, outcome: e.target.value})} className="w-full">
-                  <option value="policy_violation">Policy Violation</option>
-                  <option value="instruction_hierarchy">Instruction Hierarchy</option>
-                  <option value="data_exfiltration">Data Exfiltration</option>
-                  <option value="prompt_injection">Prompt Injection</option>
-                  <option value="jailbreak">Jailbreak</option>
-                  <option value="hallucination">Hallucination</option>
-                  <option value="bias">Bias</option>
-                  <option value="safe">Safe</option>
-                  <option value="not_tested">Not Tested</option>
-                  <option value="out_of_scope">Out of Scope</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Severity</label>
-                <select value={releaseForm.severity} onChange={(e) => setReleaseForm({...releaseForm, severity: e.target.value})} className="w-full">
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Category</label>
-                <select value={releaseForm.category} onChange={(e) => setReleaseForm({...releaseForm, category: e.target.value})} className="w-full">
-                  <option value="policy_violation">Policy Violation</option>
-                  <option value="instruction_hierarchy">Instruction Hierarchy</option>
-                  <option value="data_exfiltration">Data Exfiltration</option>
-                  <option value="prompt_injection">Prompt Injection</option>
-                  <option value="jailbreak">Jailbreak</option>
-                  <option value="hallucination">Hallucination</option>
-                  <option value="bias">Bias</option>
-                  <option value="safe">Safe</option>
-                  <option value="not_tested">Not Tested</option>
-                  <option value="out_of_scope">Out of Scope</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Confidence: {Math.round(releaseForm.confidence * 100)}%</label>
-                <input type="range" min="0" max="1" step="0.01" value={releaseForm.confidence} onChange={(e) => setReleaseForm({...releaseForm, confidence: parseFloat(e.target.value)})} className="w-full" />
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setShowReleaseModal(false)} className="flex-1 px-4 py-2 border border-bayora-border rounded-lg hover:bg-bayora-border transition-colors">Cancel</button>
-                <button type="submit" disabled={releaseObservation.isPending} className="flex-1 px-4 py-2 bg-bayora-primary hover:bg-bayora-primary-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50">{releaseObservation.isPending ? 'Releasing...' : 'Release'}</button>
               </div>
             </form>
           </div>

@@ -3,6 +3,8 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ServiceIdentitySchema, ActorRole, CapabilitySchema } from '@bayora/schemas';
 import { generateRequestId } from '@bayora/crypto-utils';
+import { authenticate } from '../security/accounts.js';
+import { principals, DEMO_TENANT } from '../security/context.js';
 
 const CAPABILITY_MAP: Record<string, z.infer<typeof CapabilitySchema>[]> = {
   red: [
@@ -40,16 +42,19 @@ const CAPABILITY_MAP: Record<string, z.infer<typeof CapabilitySchema>[]> = {
   ]
 };
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const serviceId = req.headers['x-service-id'] as string;
-  const role = req.headers['x-service-role'] as ActorRole;
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+  const demo = process.env.AUTH_MODE === 'demo' && process.env.NODE_ENV !== 'production';
+  const account = demo ? null : await authenticate((req.headers.authorization || '').replace(/^Bearer /, ''));
+  const serviceId = demo ? req.headers['x-service-id'] as string : account?.id;
+  const role = (demo ? req.headers['x-service-role'] : account?.role) as ActorRole;
 
   if (!serviceId || !role) {
     return res.status(401).json({
       success: false,
       error: {
         code: 'UNAUTHORIZED',
-        message: 'Missing service identity headers',
+        message: 'Authentication required',
         requestId: req.requestId
       },
       requestId: req.requestId
@@ -77,9 +82,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     });
   }
 
-  req.identity = result.data;
+  req.identity = { ...result.data, tenantId: account?.tenant_id || DEMO_TENANT, userId: account?.id || '44444444-4444-4444-4444-444444444444' };
   req.capabilities = capabilities;
-  next();
+  principals.run({ tenantId: req.identity.tenantId, userId: req.identity.userId, role }, next);
+  } catch (error) { next(error); }
 }
 
 export function requireCapability(capability: string) {
@@ -90,7 +96,7 @@ export function requireCapability(capability: string) {
         success: false,
         error: {
           code: 'FORBIDDEN',
-          message: `Missing required capability: ${capability}`,
+          message: 'Access denied',
           requestId: req.requestId
         },
         requestId: req.requestId
@@ -105,9 +111,9 @@ export function requireRole(roles: ActorRole | ActorRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.identity || !roleArray.includes(req.identity.role as ActorRole)) {
       const runId = z.string().uuid().safeParse(req.params.id);
-      void query('INSERT INTO access_denials (run_id, actor, route) VALUES ($1, $2, $3)',
-        [runId.success ? runId.data : null, req.identity?.role || 'unknown', req.path.split('?')[0]])
-        .then(() => res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient role permissions', requestId: req.requestId } }))
+      void query('INSERT INTO access_denials (run_id, actor, route, tenant_id) VALUES ($1, $2, $3, $4)',
+        [runId.success ? runId.data : null, req.identity?.role || 'unknown', req.path.split('?')[0], req.identity?.tenantId || null])
+        .then(() => res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied', requestId: req.requestId }, requestId: req.requestId }))
         .catch(next);
       return;
 
@@ -117,7 +123,7 @@ export function requireRole(roles: ActorRole | ActorRole[]) {
 }
 
 export function requestIdMiddleware(req: Request, res: Response, next: NextFunction) {
-  req.requestId = (req.headers['x-request-id'] as string) || generateRequestId();
+  req.requestId = generateRequestId();
   res.setHeader('x-request-id', req.requestId);
   next();
 }

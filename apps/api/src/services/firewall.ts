@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ObservationSchema, EvidenceArtifactSchema, AccessClass, OutcomeCategory, Severity } from '@bayora/schemas';
 import { hash } from '@bayora/crypto-utils';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 
 interface RawEvidence {
   runId: string;

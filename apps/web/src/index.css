@@ -39,7 +39,7 @@ thead { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 td { white-space: nowrap; }
 .fixed.inset-0 { backdrop-filter: blur(8px); }
 .fixed.inset-0 > div { max-height: 90vh; overflow-y: auto; box-shadow: 0 30px 90px #1c2b4133; }
-.scrollbar-thin { scrollbar-width: thin; scrollbar-color: #c3cbd7 transparent; }
+.scrollbar-thin { scrollbar-width: none; scrollbar-color: #c3cbd7 transparent; }
 @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 1024px) { .app-sidebar { width: 215px; } .app-main { margin-left: 245px; } .page-content, .workspace-bar { padding: 24px; } }
 @media (max-width: 767px) { .app-sidebar { position: relative; inset: auto; width: auto; margin: 12px; padding: 16px; border-radius: 20px; } .brand { padding: 0 0 16px; } .nav-caption, .sidebar-note { display: none; } .app-nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; } .nav-item { white-space: nowrap; padding: 10px 12px; gap: 7px; } .app-main { margin-left: 0; } .workspace-bar { min-height: 60px; padding: 10px 20px; } .page-content { padding: 24px 16px; } .workspace-pill { font-size: 10px; } }
@@ -76,3 +76,5 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 380px) { .workspace-pill { display: none; } }
 .role-select { margin-left: auto; max-width: 160px; font-size: 12px; padding: 8px 10px; }
 @media (max-width: 420px) { .workspace-bar > span:first-of-type { display: none; } }
+
+body:has(dialog[open]) { overflow: hidden; }

@@ -1,4 +1,7 @@
 import { query } from '../db/client.js';
+import { isolated, tenantId } from '../security/context.js';
+import { callCell } from '../services/cells.js';
+import { lockRun, rateLimit, workBudget } from '../security/limits.js';
 import { runLeakageExperiment } from '../services/experiments.js';
 import { Router, Request, Response, NextFunction } from 'express';
 import { validateBody, validateParams } from '../middleware/validate.js';
@@ -36,7 +39,7 @@ import {
 } from '../services/run.js';
 import { buildAndSignManifest, verifyManifest, getSigningPublicKey, appendAuditEvent, getManifest, getAuditEvents, verifyEventCopy } from '../services/audit.js';
 import { observationFirewall } from '../services/firewall.js';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 
 const router: Router = Router();
 
@@ -49,11 +52,34 @@ const allRoles: ActorRole[] = ['orchestrator', 'auditor', 'red', 'blue', 'target
 
 // Helper to wrap async handlers with proper error handling
 const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => 
-  (req: Request, res: Response, next: NextFunction) => 
-    Promise.resolve(fn(req, res, next)).catch(next);
+  (req: Request, res: Response, next: NextFunction) => {
+    let delegated = false;
+    Promise.resolve(fn(req, res, error => { delegated = true; next(error); })).catch(next)
+      .finally(() => { if (!delegated) res.locals.releaseRun?.(); });
+  };
+router.use(['/runs/:id/execute', '/runs/:id/replay', '/experiments/leakage'], (req, res, next) => {
+  if (req.method === 'POST') void workBudget(req, res, next).catch(next); else next();
+});
+
+router.use('/runs/:id', validateParams(RunIdParamSchema), asyncHandler(async (req, res, next) => {
+  if (!await getRun(req.params.id)) {
+    await query('INSERT INTO access_denials (run_id, actor, route, tenant_id) VALUES ($1, $2, $3, $4)', [null, req.identity?.role || 'unknown', 'tenant_scope', tenantId()]);
+    return res.status(403).json({ success: false, error: { message: 'Access denied' } });
+  }
+  next();
+}), (req, res, next) => { void lockRun(req, res, next).catch(next); });
+
+router.get('/metrics', requireRole(['orchestrator', 'auditor']), asyncHandler(async (_req, res) => {
+  const runs = await query('SELECT status, count(*)::int AS count FROM runs WHERE tenant_id = $1 GROUP BY status', [tenantId()]);
+  const failures = await query('SELECT COALESCE(sum(failure_count), 0)::int AS failures, COALESCE(sum(timeout_count), 0)::int AS timeouts FROM runs WHERE tenant_id = $1', [tenantId()]);
+  const denials = await query('SELECT count(*)::int AS count FROM access_denials WHERE tenant_id = $1', [tenantId()]);
+  const latency = await query("SELECT count(*)::int AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95 FROM request_metrics WHERE tenant_id = $1 AND created_at > NOW() - interval '24 hours'", [tenantId()]);
+  const evidence = await query("SELECT count(*)::int AS attempts, count(*) FILTER (WHERE granted AND phase NOT IN ('CLOSED', 'VERIFIED'))::int AS premature FROM evidence_access WHERE tenant_id = $1", [tenantId()]);
+  res.json({ success: true, data: { runs: runs.rows, ...failures.rows[0], denied: denials.rows[0].count, latency: latency.rows[0], evidence: evidence.rows[0] } });
+}));
 
 router.use('/runs/:id', asyncHandler(async (req, res, next) => {
-  if (req.method !== 'POST' || ['/verify', '/tamper-check', '/manifest/sign'].includes(req.path)) return next();
+  if (req.method !== 'POST' || ['/verify', '/tamper-check', '/manifest/sign', '/replay', '/close'].includes(req.path)) return next();
   const parsed = RunIdParamSchema.safeParse(req.params);
   if (!parsed.success) return res.status(400).json({ success: false, error: { message: 'Invalid run ID' } });
   const run = await getRun(parsed.data.id);
@@ -66,15 +92,22 @@ router.get('/runs/:id/commitment', requireRole(allRoles), validateParams(RunIdPa
   res.json({ success: true, data: await getPayloadCommitment(req.params.id) });
 }));
 router.get('/runs/:id/red-payload', requireRole('red'), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+  if (isolated()) return res.json({ success: true, data: await callCell('red', '/payload', { runId: req.params.id }) });
   const result = await query("SELECT content FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'prompt'", [req.params.id]);
   res.json({ success: true, data: result.rows.map(row => row.content) });
 }));
 router.get('/runs/:id/blue-rules', requireRole('blue'), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
+  if (isolated()) return res.json({ success: true, data: await callCell('blue', '/rules', { runId: req.params.id }) });
   const result = await query("SELECT content FROM evidence_artifacts WHERE run_id = $1 AND artifact_type = 'defense_rule'", [req.params.id]);
   res.json({ success: true, data: result.rows.map(row => row.content) });
 }));
 router.get('/runs/:id/audit', requireRole(auditorRoles), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
   res.json({ success: true, data: await getAuditEvents(req.params.id) });
+}));
+router.get('/runs/:id/bundle', requireRole(auditorRoles), asyncHandler(async (req, res) => {
+  const manifest = await getManifest(req.params.id);
+  if (!manifest) return res.status(409).json({ success: false, error: { message: 'Close and seal the run before export' } });
+  res.json({ success: true, data: { manifest, events: await getAuditEvents(req.params.id), publicKey: await getSigningPublicKey() } });
 }));
 router.post('/runs/:id/tamper-check', requireRole(auditorRoles), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
   const events = await getAuditEvents(req.params.id);
@@ -82,7 +115,7 @@ router.post('/runs/:id/tamper-check', requireRole(auditorRoles), validateParams(
   const original = verifyEventCopy(req.params.id, events);
   const copy = events.map(event => ({ ...event }));
   copy[0].payloadDigest = 'sha256:' + 'f'.repeat(64);
-  res.json({ success: true, data: { original, tampered: verifyEventCopy(req.params.id, copy) } });
+  res.json({ success: true, data: { original, tampered: verifyEventCopy(req.params.id, copy), deleted: verifyEventCopy(req.params.id, events.filter((_, i) => i !== 1)), reordered: verifyEventCopy(req.params.id, events.slice().reverse()) } });
 }));
 
 router.post('/runs', requireRole(orchestratorRoles), validateBody(CreateRunSchema), asyncHandler(async (req, res) => {
@@ -90,10 +123,8 @@ router.post('/runs', requireRole(orchestratorRoles), validateBody(CreateRunSchem
   res.status(201).json({ success: true, data: run, requestId: req.requestId });
 }));
 
-router.get('/runs', requireRole(auditorRoles), asyncHandler(async (req, res) => {
-  const status = req.query.status as RunStatus | undefined;
-  const limit = parseInt(req.query.limit as string) || 50;
-  const offset = parseInt(req.query.offset as string) || 0;
+router.get('/runs', requireRole(['orchestrator', 'auditor', 'red', 'blue']), asyncHandler(async (req, res) => {
+  const { status, limit, offset } = z.object({ status: z.enum(['CREATED', 'COMMITTED', 'RUNNING', 'EVALUATED', 'CLOSED', 'VERIFIED']).optional(), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).max(100000).default(0) }).parse(req.query);
   const runs = await listRuns(status, limit, offset);
   res.json({ success: true, data: runs, requestId: req.requestId });
 }));
@@ -117,53 +148,6 @@ router.post('/runs/:id/execute', requireRole('orchestrator'), validateParams(Run
   res.json({ success: true, data: { status: 'RUNNING' }, requestId: req.requestId });
 }));
 
-router.post('/runs/:id/target/execute', requireRole('target'), validateParams(RunIdParamSchema), validateBody(TargetRequestSchema), asyncHandler(async (req, res) => {
-  const { caseId, prompt, timeoutMs } = req.body;
-  const runId = req.params.id;
-
-  const mockResponse = `[MOCK] Processed: ${prompt.substring(0, 100)}...`;
-  const latencyMs = Math.floor(Math.random() * 500) + 100;
-
-  const response = {
-    runId,
-    caseId,
-    response: mockResponse,
-    tokensUsed: Math.floor(mockResponse.length / 4),
-    latencyMs,
-    metadata: { mock: true }
-  };
-
-  await storeTargetResponse(response);
-  await appendAuditEvent(runId, 'target_response', 'target', { runId, caseId, latencyMs });
-
-  res.json({ success: true, data: response, requestId: req.requestId });
-}));
-
-router.post('/runs/:id/blue/defend', requireRole('blue'), validateParams(RunIdParamSchema), validateBody(BlueDefenseInputSchema), asyncHandler(async (req, res) => {
-  const { observation, defenseConfig } = req.body;
-  const runId = req.params.id;
-
-  const sanitized = observationFirewall.sanitizeForBlue({
-    runId,
-    caseId: observation.caseId,
-    prompt: '',
-    response: '',
-    timing: {}
-  });
-
-  const action = Math.random() > 0.5 ? 'allow' : 'flag';
-  const defenseOutput = {
-    runId,
-    caseId: observation.caseId,
-    action,
-    reason: action === 'allow' ? 'Observation passes defense rules' : 'Observation flagged for review',
-    metadata: { defenseConfig }
-  };
-
-  await appendAuditEvent(runId, 'defense_applied', 'blue', { runId, caseId: observation.caseId, action });
-  res.json({ success: true, data: defenseOutput, requestId: req.requestId });
-}));
-
 router.post('/runs/:id/evaluate', requireRole('orchestrator'), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
   await completeEvaluation(req.params.id);
   observationFirewall.setRunPhase(req.params.id, 'evaluation_closed');
@@ -183,8 +167,16 @@ router.get('/runs/:id/observations', requireRole(['orchestrator', 'auditor', 'bl
 
 router.get('/runs/:id/evidence', requireRole('auditor'), validateParams(RunIdParamSchema), asyncHandler(async (req, res) => {
   const run = await getRun(req.params.id);
+  await query('INSERT INTO evidence_access (tenant_id, run_id, phase, granted) VALUES ($1, $2, $3, $4)', [tenantId(), req.params.id, run?.status || 'UNKNOWN', !!run && ['CLOSED', 'VERIFIED'].includes(run.status)]);
   if (!run || (run.status !== 'CLOSED' && run.status !== 'VERIFIED')) {
+    await query('INSERT INTO access_denials (run_id, actor, route, tenant_id) VALUES ($1, $2, $3, $4)', [req.params.id, 'auditor', 'premature_evidence', tenantId()]);
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Evidence only accessible after run closure', requestId: req.requestId }, requestId: req.requestId });
+  }
+
+  if (isolated()) {
+    const red = await callCell<any[]>('red', '/evidence', { runId: req.params.id });
+    const blue = await callCell<any[]>('blue', '/evidence', { runId: req.params.id });
+    return res.json({ success: true, data: [...red, ...blue], requestId: req.requestId });
   }
 
   const records = await query('SELECT * FROM evidence_artifacts WHERE run_id = $1', [req.params.id]);
@@ -221,23 +213,22 @@ router.post('/experiments/leakage', requireRole('orchestrator'), validateBody(Le
 }));
 
 router.get('/experiments/:id/results', requireRole(['orchestrator', 'auditor']), validateParams(z.object({ id: z.string().uuid() })), asyncHandler(async (req, res) => {
+  const scoped = await query('SELECT id FROM experiments WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId()]);
+  if (!scoped.rowCount) return res.status(403).json({ success: false, error: { message: 'Access denied' } });
   const results = await getExperimentResults(req.params.id);
   res.json({ success: true, data: results, requestId: req.requestId });
 }));
 
-router.post('/runs/:id/observations/release', requireRole(['orchestrator', 'observation-firewall']), validateParams(RunIdParamSchema), validateBody(z.object({
-  caseId: z.string(),
-  outcome: z.enum(['policy_violation', 'instruction_hierarchy', 'data_exfiltration', 'prompt_injection', 'jailbreak', 'hallucination', 'bias', 'safe', 'not_tested', 'out_of_scope']),
-  severity: z.enum(['low', 'medium', 'high', 'critical']),
-  category: z.enum(['policy_violation', 'instruction_hierarchy', 'data_exfiltration', 'prompt_injection', 'jailbreak', 'hallucination', 'bias', 'safe', 'not_tested', 'out_of_scope']),
-  confidence: z.number().min(0).max(1)
-})), asyncHandler(async (req, res) => {
-  const { caseId, outcome, severity, category, confidence } = req.body;
-  const observation = await releaseObservation(req.params.id, caseId, outcome, severity, category, confidence);
-  if (!observation) {
-    return res.status(400).json({ success: false, error: { code: 'RELEASE_FAILED', message: 'Cannot release observation in current phase', requestId: req.requestId }, requestId: req.requestId });
-  }
-  res.json({ success: true, data: observation, requestId: req.requestId });
+router.get('/experiments', requireRole(['orchestrator', 'auditor']), asyncHandler(async (_req, res) => {
+  const result = await query('SELECT id, type, status, started_at, finished_at, run_id, config FROM experiments WHERE tenant_id = $1 ORDER BY started_at DESC LIMIT 100', [tenantId()]);
+  res.json({ success: true, data: result.rows });
+}));
+
+router.post('/runs/:id/replay', requireRole('auditor'), rateLimit(5, 'replay'), asyncHandler(async (req, res) => {
+  const run = await getRun(req.params.id);
+  if (!run || !['CLOSED', 'VERIFIED'].includes(run.status)) return res.status(409).json({ success: false, error: { message: 'Close the run before replay' } });
+  if (!isolated()) return res.status(409).json({ success: false, error: { message: 'Replay requires isolated execution services' } });
+  res.json({ success: true, data: await callCell('replay', '/replay', { runId: req.params.id }) });
 }));
 
 export default router;
